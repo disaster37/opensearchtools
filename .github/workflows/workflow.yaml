@@ -12,6 +12,9 @@ on:
         - 2.x
         - main
 
+permissions:
+  contents: write
+
 jobs:
   # The "build" workflow
   build:
@@ -67,7 +70,7 @@ jobs:
         with:
           distribution: goreleaser
           version: latest
-          args: release --rm-dist
+          args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
