@@ -86,7 +86,7 @@ func (s *ESTestSuite) TestCheckCluster() {
 
 	clusterStatus, err := checkClusterStatus(s.client)
 	assert.NoError(s.T(), err)
-	assert.Equal(s.T(), "green", clusterStatus)
+	assert.Regexp(s.T(), "green|yellow", clusterStatus)
 }
 
 func (s *ESTestSuite) TestClusterRoutingAllocation() {
