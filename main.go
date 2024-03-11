@@ -39,6 +39,7 @@ func run(args []string) error {
 			Name:    "urls",
 			Usage:   "The opensearch URLs",
 			EnvVars: []string{"OPENSEARCH_URLS"},
+			Required: true,
 		}),
 		altsrc.NewStringFlag(&cli.StringFlag{
 			Name:    "user",

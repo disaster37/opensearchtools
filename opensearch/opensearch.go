@@ -16,10 +16,6 @@ import (
 
 func manageOpensearchGlobalParameters(c *cli.Context) (*opensearch.Client, error) {
 
-	if c.String("url") == "" {
-		return nil, errors.New("You must set --url parameter")
-	}
-
 	log.Debug("Opensearch URL: ", c.String("urls"))
 	log.Debug("Opensearch user: ", c.String("user"))
 	log.Debug("Opensearch password: XXX")
