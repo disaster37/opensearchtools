@@ -1,0 +1,27 @@
+version: "3"
+
+services:
+  elasticsearch:
+    image: opensearchproject/opensearch:2.12.0
+    hostname: opensearch
+    environment:
+      - cluster.name=opensearchsearch
+      - bootstrap.memory_lock=true
+      - discovery.type=single-node
+      - network.publish_host=127.0.0.1
+      - logger.org.opensearchsearch=warn
+      - path.repo=/tmp
+      - "OPENSEARCH_JAVA_OPTS=-Xms1g -Xmx1g"
+      - plugins.security.nodes_dn_dynamic_config_enabled=true
+      - plugins.security.unsupported.restapi.allow_securityconfig_modification=true
+      - OPENSEARCH_INITIAL_ADMIN_PASSWORD=vLPeJYa8.3RqtZCcAK6jNz
+    ulimits:
+      nproc: 65536
+      nofile:
+        soft: 65536
+        hard: 65536
+      memlock:
+        soft: -1
+        hard: -1
+    ports:
+      - 9200:9200
