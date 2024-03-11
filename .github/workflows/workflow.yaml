@@ -41,6 +41,7 @@ jobs:
         docker-compose up &
         until $(curl --output /dev/null --silent --head --fail -k -u admin:vLPeJYa8.3RqtZCcAK6jNz https://localhost:9200); do echo "wait opensearch" && sleep 5; done
         curl --fail -XGET -k -u admin:vLPeJYa8.3RqtZCcAK6jNz "https://localhost:9200/_cluster/health?wait_for_status=yellow&timeout=500s"
+        make loadFixture
     - name: Run test
       run: make test
     - uses: codecov/codecov-action@v4
