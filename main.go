@@ -115,6 +115,57 @@ func run(args []string) error {
 			Category: "Downtime",
 			Action:   localopensearch.ClusterEnableRoutingAllocation,
 		},
+		{
+			Name:     "export-data",
+			Usage:    "Export data from query to file",
+			Category: "Export",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:  "from",
+					Usage: "From time to export data",
+					Value: "now-24h",
+				},
+				&cli.StringFlag{
+					Name:  "to",
+					Usage: "To time to export data",
+					Value: "now",
+				},
+				&cli.StringFlag{
+					Name:  "date-field",
+					Usage: "The date field to range over",
+					Value: "@timestamp",
+				},
+				&cli.StringFlag{
+					Name:  "index",
+					Usage: "The index to export data",
+					Value: "_all",
+				},
+				&cli.StringFlag{
+					Name:  "query",
+					Usage: "To query to export data",
+				},
+				&cli.StringSliceFlag{
+					Name:  "fields",
+					Usage: "Fields to extracts",
+					Value: cli.NewStringSlice("log.original"),
+				},
+				&cli.StringFlag{
+					Name:  "separator",
+					Usage: "The separator to concatain field when extract multi fields",
+					Value: "|",
+				},
+				&cli.StringFlag{
+					Name:  "split-file-field",
+					Usage: "The field to use to split data into multi files",
+					Value: "host.name",
+				},
+				&cli.StringFlag{
+					Name:  "path",
+					Usage: "The root path to create extracted files",
+				},
+			},
+			Action: localopensearch.ExportDataToFiles,
+		},
 	}
 
 	app.Before = func(c *cli.Context) error {
