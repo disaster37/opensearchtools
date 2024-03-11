@@ -16,13 +16,13 @@ RUN go mod download
 COPY . ./
 
 # Build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -ldflags "-s -w -X main.version=${version} -X main.commit=${commit}" -o elktools .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -ldflags "-s -w -X main.version=${version} -X main.commit=${commit}" -o opensearchtools .
 
 
 # Use alpine to have shell support
 FROM alpine:latest
 WORKDIR /
-COPY --from=builder /workspace/elktools /usr/local/bin/
+COPY --from=builder /workspace/opensearchtools /usr/local/bin/
 RUN \
     apk --update add bash &&\
     rm -rf /var/cache/apk/*
