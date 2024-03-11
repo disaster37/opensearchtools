@@ -48,6 +48,7 @@ jobs:
         files: coverage.txt
         flags: unittests
         fail_ci_if_error: true
+        token: ${{ secrets.CODECOV_TOKEN }}
 
   release:
     needs: [build] # Only run this workflow when "build" workflow succeeds
