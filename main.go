@@ -36,9 +36,9 @@ func run(args []string) error {
 			Usage: "Load configuration from `FILE`",
 		},
 		altsrc.NewStringSliceFlag(&cli.StringSliceFlag{
-			Name:    "urls",
-			Usage:   "The opensearch URLs",
-			EnvVars: []string{"OPENSEARCH_URLS"},
+			Name:     "urls",
+			Usage:    "The opensearch URLs",
+			EnvVars:  []string{"OPENSEARCH_URLS"},
 			Required: true,
 		}),
 		altsrc.NewStringFlag(&cli.StringFlag{
@@ -142,8 +142,9 @@ func run(args []string) error {
 					Value: "_all",
 				},
 				&cli.StringFlag{
-					Name:  "query",
-					Usage: "To query to export data",
+					Name:     "query",
+					Usage:    "To query to export data",
+					Required: true,
 				},
 				&cli.StringSliceFlag{
 					Name:  "fields",
@@ -163,6 +164,7 @@ func run(args []string) error {
 				&cli.StringFlag{
 					Name:  "path",
 					Usage: "The root path to create extracted files",
+					Value: ".",
 				},
 			},
 			Action: localopensearch.ExportDataToFiles,

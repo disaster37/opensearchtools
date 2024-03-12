@@ -30,7 +30,7 @@ make test
 ### Global options
 
 The following parameters are available for all commands line :
-- **--url**: The Opensearch URL. For exemple https://opensearch.company.com. Alternatively you can use environment variable `OPENSEARCH_URL`.
+- **--urls**: The Opensearch URL. For exemple https://opensearch.company.com. Alternatively you can use environment variable `OPENSEARCH_URLS`. You can set multiple urls.
 - **--user**: The login to connect on Opensearch. Alternatively you can use environment variable `OPENSEARCH_USER`.
 - **--password**: The password to connect on Opensearch. Alternatively you can use environment variable `OPENSEARCH_PASSWORD`.
 - **--self-signed-certificate**: Disable the check of server SSL certificate
@@ -41,7 +41,7 @@ The following parameters are available for all commands line :
 You can set also this parameters on yaml file (one or all) and use the parameters `--config` with the path of your Yaml file.
 ```yaml
 ---
-url: https://opensearch.company.com
+urls: https://opensearch.company.com
 user: admin
 password: changeme
 ```
@@ -55,7 +55,7 @@ There are no parameter
 
 Sample of command:
 ```bash
-elktools_linux_amd64 --url https://elasticsearch.company.com --user elastic --password changeme --self-signed-certificate disable-routing-allocation
+opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin --password changeme --self-signed-certificate disable-routing-allocation
 ```
 
 ### Enable shard allocation
@@ -66,93 +66,51 @@ There are no parameter
 
 Sample of command:
 ```bash
-elktools_linux_amd64 --url https://elasticsearch.company.com --user elastic --password changeme --self-signed-certificate enable-routing-allocation
+opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin --password changeme --self-signed-certificate enable-routing-allocation
 ```
 
-### Stop task for machine learning
 
-It permit to temporarily stop the tasks associated with active machine leaning jobs and datafeeds. It usefull when reboot or upgrade nodes.
+### Check the number of nodes availables
 
-There are no parameter
+It permit to check that the cluster have the number of available nodes
+
+__parameters__:
+  - **number-nodes** (required): number of nodes you expected
 
 Sample of command:
 ```bash
-elktools_linux_amd64 --url https://elasticsearch.company.com --user elastic --password changeme --self-signed-certificate enable-ml-upgrade
+opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin --password changeme --self-signed-certificate check-number-nodes --number-nodes 6
 ```
 
-### Start task for machine learning
+### Check if node is available in cluster
 
-It permit to start the tasks associated with active machine leaning jobs and datafeeds. It usefull when reboot or upgrade nodes.
+It permit to check if node is available on cluster
 
-There are no parameter
+__parameters__:
+  - **node-name** (required): The node name
+  - **labels**: You can also search the `node-name` on labels instead of real node name. It usefull if you need use key that is not the real node name.
 
 Sample of command:
 ```bash
-elktools_linux_amd64 --url https://elasticsearch.company.com --user elastic --password changeme --self-signed-certificate disable-ml-upgrade
+opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin --password changeme --self-signed-certificate check-node-online --node-name es-master-01 --labels node_name
 ```
 
-### Stop Watcher service
+### Export data
 
-It permit to stop watcher service. It usefull when reboot or upgrade nodes.
+It permit to rebuild log file from data stored on Opensearch. It usefull when use Opensearch as log storage.
 
-There are no parameter
+__parameters__:
+  - **from**: From time to export data. Default to `now-24h`
+  - **to**: To time to export data. Default to `now`
+  - **date-field**: The date field to range over. Default to `@timestamp`
+  - **index**: The index to export data. Default to `_all_`
+  - **query** (required): To query to export data. The query as Lucene query (string query format)
+  - **fields**: Fields to extracts. Default to `log.original`
+  - **separator**: The separator to concatain field when extract multi fields. Default to `|`
+  - **split-file-field**: The field to use to split data into multi files. Default to `host.name`
+  - **path**: The root path to create extracted files. Default to `.`
 
 Sample of command:
 ```bash
-elktools_linux_amd64 --url https://elasticsearch.company.com --user elastic --password changeme --self-signed-certificate stop-watcher-service
-```
-
-### Start Watcher service
-
-It permit to start watcher service. It usefull when reboot or upgrade nodes.
-
-There are no parameter
-
-Sample of command:
-```bash
-elktools_linux_amd64 --url https://elasticsearch.company.com --user elastic --password changeme --self-signed-certificate start-watcher-service
-```
-
-### Stop ILM service
-
-It permit to stop Index Lifecycle Management service. It usefull when reboot or upgrade nodes.
-
-There are no parameter
-
-Sample of command:
-```bash
-elktools_linux_amd64 --url https://elasticsearch.company.com --user elastic --password changeme --self-signed-certificate stop-ilm-service
-```
-
-### Start ILM service
-
-It permit to start Index Lifecycle Management service. It usefull when reboot or upgrade nodes.
-
-There are no parameter
-
-Sample of command:
-```bash
-elktools_linux_amd64 --url https://elasticsearch.company.com --user elastic --password changeme --self-signed-certificate start-ilm-service
-```
-
-### Stop SLM service
-
-It permit to stop Snapshot Lifecycle Management service. It usefull when reboot or upgrade nodes.
-
-There are no parameter
-
-Sample of command:
-```bash
-elktools_linux_amd64 --url https://elasticsearch.company.com --user elastic --password changeme --self-signed-certificate stop-slm-service
-```
-
-### Start SLM service
-
-It permit to start Snapshot Lifecycle Management service. It usefull when reboot or upgrade nodes.
-
-There are no parameter
-
-Sample of command:
-```bash
-elktools_linux_amd64 --url https://elasticsearch.company.com --user elastic --password changeme --self-signed-certificate start-slm-service
+opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin --password changeme --self-signed-certificate export-data --from now-12h --to now --date-field "@timestamp" --index "logs-*" --query "labels.application: app1 AND labels.environment: staging" --fields log.original --split-file-field host.name --path /tmp
 ```
