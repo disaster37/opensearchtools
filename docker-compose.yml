@@ -2,7 +2,7 @@ version: "3"
 
 services:
   elasticsearch:
-    image: opensearchproject/opensearch:2.12.0
+    image: opensearchproject/opensearch:2.14.0
     hostname: opensearch
     environment:
       - cluster.name=opensearchsearch
