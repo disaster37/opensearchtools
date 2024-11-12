@@ -4,9 +4,9 @@
   "sdk": "go",
   "dependencies": [
     {
-      "name": "goreleaser",
-      "source": "github.com/Excoriate/daggerverse/goreleaser@v1.15.4",
-      "pin": "9987052c010bcbdda3b4c148c2e7b3fe73817f91"
+      "name": "image",
+      "source": "github.com/disaster37/dagger-library-go/image",
+      "pin": "328c724b1a954d92543b08b4338fd885d5f10931"
     },
     {
       "name": "codecov",
@@ -24,9 +24,9 @@
       "pin": "9f87a8c41f0edc2766602b75a5c52a681001d5b5"
     },
     {
-      "name": "image",
-      "source": "github.com/disaster37/dagger-library-go/image",
-      "pin": "3f0a9830e609652ac980ab5152ce1305343f4746"
+      "name": "goreleaser",
+      "source": "github.com/Excoriate/daggerverse/goreleaser@v1.15.4",
+      "pin": "9987052c010bcbdda3b4c148c2e7b3fe73817f91"
     }
   ],
   "source": "ci/dagger"
