@@ -15,7 +15,6 @@ import (
 )
 
 func manageOpensearchGlobalParameters(c *cli.Context) (*opensearch.Client, error) {
-
 	log.Debug("Opensearch URL: ", c.String("urls"))
 	log.Debug("Opensearch user: ", c.String("user"))
 	log.Debug("Opensearch password: XXX")
@@ -43,11 +42,9 @@ func manageOpensearchGlobalParameters(c *cli.Context) (*opensearch.Client, error
 	}
 
 	return es, nil
-
 }
 
 func CheckConnexion(c *cli.Context) error {
-
 	es, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
@@ -57,7 +54,6 @@ func CheckConnexion(c *cli.Context) error {
 }
 
 func checkConnexion(es *opensearch.Client) error {
-
 	_, err := es.ClusterHealth().Do(context.Background())
 	if err != nil {
 		return errors.Errorf("Error when check Opensearch connexion: %s", err.Error())
@@ -67,7 +63,6 @@ func checkConnexion(es *opensearch.Client) error {
 }
 
 func CheckClusterStatus(c *cli.Context) error {
-
 	es, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		log.Errorf("Cluster Unknown:\n%s", err.Error())
@@ -102,11 +97,9 @@ func checkClusterStatus(es *opensearch.Client) (string, error) {
 	}
 
 	return res.Status, nil
-
 }
 
 func ClusterEnableRoutingAllocation(c *cli.Context) error {
-
 	es, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
@@ -123,7 +116,6 @@ func ClusterEnableRoutingAllocation(c *cli.Context) error {
 }
 
 func ClusterDisableRoutingAllocation(c *cli.Context) error {
-
 	es, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
@@ -164,7 +156,6 @@ func disableRoutingAllocation(es *opensearch.Client) error {
 }
 
 func putClusterSettings(es *opensearch.Client, settings map[string]interface{}) error {
-
 	log.Debugf("Settings: %+v", settings)
 
 	if _, err := es.ClusterPutSetting().Body(settings).Do(context.Background()); err != nil {
@@ -172,5 +163,4 @@ func putClusterSettings(es *opensearch.Client, settings map[string]interface{}) 
 	}
 
 	return nil
-
 }

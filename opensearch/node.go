@@ -11,7 +11,6 @@ import (
 )
 
 func CheckNodeOnline(c *cli.Context) error {
-
 	es, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
@@ -31,11 +30,9 @@ func CheckNodeOnline(c *cli.Context) error {
 	os.Exit(1)
 
 	return nil
-
 }
 
 func CheckExpectedNumberNodes(c *cli.Context) error {
-
 	es, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
@@ -55,7 +52,6 @@ func CheckExpectedNumberNodes(c *cli.Context) error {
 	os.Exit(1)
 
 	return nil
-
 }
 
 func checkNodeOnline(es *opensearch.Client, nodeName string, labels []string) (bool, error) {
@@ -77,7 +73,6 @@ func checkNodeOnline(es *opensearch.Client, nodeName string, labels []string) (b
 	}
 
 	return false, nil
-
 }
 
 func checkExpectedNumberNodes(es *opensearch.Client, nodesNumber int) (bool, error) {

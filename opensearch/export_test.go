@@ -9,7 +9,6 @@ import (
 )
 
 func (s *ESTestSuite) TestExportDataToFiles() {
-
 	logrus.SetLevel(logrus.TraceLevel)
 
 	dir, err := os.MkdirTemp("/tmp", "test")
@@ -30,5 +29,4 @@ func (s *ESTestSuite) TestExportDataToFiles() {
 	content, err = os.ReadFile(fmt.Sprintf("%s/es-1", dir))
 	assert.NoError(s.T(), err)
 	assert.Equal(s.T(), "[gc][17868264] overhead, spent [279ms] collecting in the last [1s]\n", string(content))
-
 }

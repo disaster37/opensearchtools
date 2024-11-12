@@ -3,7 +3,6 @@ package opensearchtools
 import "github.com/stretchr/testify/assert"
 
 func (s *ESTestSuite) TestCheckExpectedNodes() {
-
 	// When true
 	isExpectedNode, err := checkExpectedNumberNodes(s.client, 1)
 	assert.NoError(s.T(), err)
@@ -16,7 +15,6 @@ func (s *ESTestSuite) TestCheckExpectedNodes() {
 }
 
 func (s *ESTestSuite) TestCheckNodeOnlie() {
-
 	// When true
 	isOnline, err := checkNodeOnline(s.client, "opensearch-node1", []string{"node_name"})
 	assert.NoError(s.T(), err)

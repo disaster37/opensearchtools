@@ -16,8 +16,9 @@ package main
 
 import (
 	"context"
-	"dagger/opensearchtools/internal/dagger"
 	"fmt"
+
+	"dagger/opensearchtools/internal/dagger"
 
 	"emperror.dev/errors"
 	"github.com/disaster37/dagger-library-go/lib/helper"
@@ -54,7 +55,6 @@ func New(
 	// +required
 	src *dagger.Directory,
 ) (*Opensearchtools, error) {
-
 	// Compute image because of base is not optional
 	version, err := inspectModVersion(context.Background(), src)
 	if err != nil {
@@ -138,7 +138,6 @@ func (h *Opensearchtools) Ci(
 	}
 
 	return dir, nil
-
 }
 
 // Lint permit to lint code
@@ -205,7 +204,6 @@ func (h *Opensearchtools) CodeCov(
 	// +required
 	token *dagger.Secret,
 ) (stdout string, err error) {
-
 	if src == nil {
 		src = h.Src
 	}

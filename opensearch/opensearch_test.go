@@ -23,7 +23,6 @@ type ESTestSuite struct {
 }
 
 func (s *ESTestSuite) SetupSuite() {
-
 	// Init logger
 	logrus.SetFormatter(new(prefixed.TextFormatter))
 	logrus.SetLevel(logrus.DebugLevel)
@@ -61,13 +60,10 @@ func (s *ESTestSuite) SetupSuite() {
 	}
 
 	s.client = client
-
 }
 
 func (s *ESTestSuite) SetupTest() {
-
 	// Do somethink before each test
-
 }
 
 func TestESTestSuite(t *testing.T) {
@@ -75,20 +71,17 @@ func TestESTestSuite(t *testing.T) {
 }
 
 func (s *ESTestSuite) TestCheckConnexion() {
-
 	err := checkConnexion(s.client)
 	assert.NoError(s.T(), err)
 }
 
 func (s *ESTestSuite) TestCheckCluster() {
-
 	clusterStatus, err := checkClusterStatus(s.client)
 	assert.NoError(s.T(), err)
 	assert.Regexp(s.T(), "green|yellow", clusterStatus)
 }
 
 func (s *ESTestSuite) TestClusterRoutingAllocation() {
-
 	err := disableRoutingAllocation(s.client)
 	assert.NoError(s.T(), err)
 

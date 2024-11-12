@@ -17,7 +17,6 @@ import (
 // ExportDataToFiles permit to extract some datas to files
 // It return error if something wrong
 func ExportDataToFiles(c *cli.Context) error {
-
 	es, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
@@ -54,7 +53,6 @@ func ExportDataToFiles(c *cli.Context) error {
 }
 
 func exportDataToFiles(fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, es *opensearch.Client) error {
-
 	if path == "" {
 		return errors.New("You must provide path")
 	}
@@ -94,7 +92,7 @@ func exportDataToFiles(fromDate string, toDate string, dateField string, index s
 	// Forge payload
 	computedFields := append(fields, splitFileColumn)
 	scs := es.Scroll(index).
-		//DocvalueFields(computedFields...).
+		// DocvalueFields(computedFields...).
 		Size(size).
 		Query(boolQuery).
 		Sort(dateField, true).
@@ -126,7 +124,6 @@ func exportDataToFiles(fromDate string, toDate string, dateField string, index s
 }
 
 func processExport(searchResult *opensearch.SearchResult, fields []string, separator string, path string, splitFileColumn string) (err error) {
-
 	log.Debugf("Process %d documents", len(searchResult.Hits.Hits))
 
 	// Loop over results
@@ -145,7 +142,7 @@ func processExport(searchResult *opensearch.SearchResult, fields []string, separ
 					log.Infof("Create file: %s", fileName)
 				}
 				log.Debugf("Open file %s", fileName)
-				file, err = os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				file, err = os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 				if err != nil {
 					log.Errorf("Error when open file: %s", err.Error())
 					return err

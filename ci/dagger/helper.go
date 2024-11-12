@@ -2,8 +2,9 @@ package main
 
 import (
 	"context"
-	"dagger/opensearchtools/internal/dagger"
 	"fmt"
+
+	"dagger/opensearchtools/internal/dagger"
 
 	"golang.org/x/mod/modfile"
 )

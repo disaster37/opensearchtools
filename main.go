@@ -18,7 +18,6 @@ var (
 )
 
 func run(args []string) error {
-
 	// Logger setting
 	formatter := new(prefixed.TextFormatter)
 	formatter.FullTimestamp = true
@@ -172,7 +171,6 @@ func run(args []string) error {
 	}
 
 	app.Before = func(c *cli.Context) error {
-
 		if c.Bool("debug") {
 			log.SetLevel(log.DebugLevel)
 		}
