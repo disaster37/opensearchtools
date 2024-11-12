@@ -6,7 +6,7 @@
     {
       "name": "image",
       "source": "github.com/disaster37/dagger-library-go/image",
-      "pin": "328c724b1a954d92543b08b4338fd885d5f10931"
+      "pin": "52140e653504ec3bc51a71bd1c6e7716b7e07f72"
     },
     {
       "name": "codecov",
