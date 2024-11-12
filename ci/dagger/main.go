@@ -127,6 +127,15 @@ func (h *Opensearchtools) Ci(
 			return nil, errors.Wrapf(err, "Error when upload report on CodeCov: %s", stdout)
 		}
 
+		// Create release on github with gorelease
+		if version != defaultGitBranch {
+			if _, err = dag.Goreleaser().WithSource(h.Src).Release(ctx, dagger.GoreleaserReleaseOpts{
+				Clean: true,
+			}); err != nil {
+				return nil, errors.Wrap(err, "Error when call Gorelease")
+			}
+		}
+
 		if _, err = dag.Git().SetConfig(gitUsername, gitEmail, dagger.GitSetConfigOpts{BaseRepoURL: "github.com", Token: gitToken}).SetRepo(dir, dagger.GitSetRepoOpts{Branch: defaultGitBranch}).CommitAndPush(ctx, "Commit from CI. skip ci"); err != nil {
 			return nil, errors.Wrap(err, "Error when commit and push files change")
 		}

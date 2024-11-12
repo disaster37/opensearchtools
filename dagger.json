@@ -4,6 +4,11 @@
   "sdk": "go",
   "dependencies": [
     {
+      "name": "goreleaser",
+      "source": "github.com/Excoriate/daggerverse/goreleaser@v1.15.4",
+      "pin": "9987052c010bcbdda3b4c148c2e7b3fe73817f91"
+    },
+    {
       "name": "codecov",
       "source": "github.com/kpenfound/dagger-modules/codecov@codecov/v0.1.1",
       "pin": "9c07696ffaaecf5cb951dd846c492afdeae34456"
