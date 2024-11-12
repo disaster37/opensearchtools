@@ -130,9 +130,10 @@ func (h *Opensearchtools) Ci(
 		// Create release on github with gorelease
 		if version != defaultGitBranch {
 			if _, err = dag.Goreleaser().WithSource(h.Src).Release(ctx, dagger.GoreleaserReleaseOpts{
-				Clean:   true,
-				Cfg:     ".goreleaser.yml",
-				EnvVars: []string{"GITHUB_TOKEN"},
+				Clean:        true,
+				Cfg:          ".goreleaser.yml",
+				EnvVars:      []string{"GITHUB_TOKEN=$GITHUB_TOKEN"},
+				AutoSnapshot: true,
 			}); err != nil {
 				return nil, errors.Wrap(err, "Error when call Gorelease")
 			}
