@@ -131,6 +131,7 @@ func (h *Opensearchtools) Ci(
 		if version != defaultGitBranch {
 			if _, err = dag.Goreleaser().WithSource(h.Src).Release(ctx, dagger.GoreleaserReleaseOpts{
 				Clean: true,
+				Cfg:   ".goreleaser.yml",
 			}); err != nil {
 				return nil, errors.Wrap(err, "Error when call Gorelease")
 			}
