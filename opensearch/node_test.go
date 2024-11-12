@@ -18,7 +18,7 @@ func (s *ESTestSuite) TestCheckExpectedNodes() {
 func (s *ESTestSuite) TestCheckNodeOnlie() {
 
 	// When true
-	isOnline, err := checkNodeOnline(s.client, "opensearch", []string{"node_name"})
+	isOnline, err := checkNodeOnline(s.client, "opensearch-node1", []string{"node_name"})
 	assert.NoError(s.T(), err)
 	assert.True(s.T(), isOnline)
 

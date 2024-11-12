@@ -1,22 +1,22 @@
 module github.com/disaster37/opensearchtools/v2
 
-go 1.22
+go 1.23
 
 require (
-	github.com/disaster37/opensearch/v2 v2.0.10
+	github.com/disaster37/opensearch/v2 v2.0.12
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
-	github.com/tidwall/gjson v1.17.3
-	github.com/urfave/cli/v2 v2.27.4
+	github.com/tidwall/gjson v1.18.0
+	github.com/urfave/cli/v2 v2.27.5
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
-	k8s.io/utils v0.0.0-20240821151609-f90d01438635
+	k8s.io/utils v0.0.0-20241104163129-6fe5fd82f078
 )
 
 require (
 	emperror.dev/errors v0.8.1 // indirect
-	github.com/BurntSushi/toml v1.3.2 // indirect
-	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
+	github.com/BurntSushi/toml v1.4.0 // indirect
+	github.com/cpuguy83/go-md2man/v2 v2.0.5 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect

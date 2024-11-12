@@ -5,7 +5,6 @@ import (
 	"crypto/tls"
 	"net/http"
 	"os"
-	"strings"
 	"testing"
 	"time"
 
@@ -30,12 +29,11 @@ func (s *ESTestSuite) SetupSuite() {
 	logrus.SetLevel(logrus.DebugLevel)
 
 	// Init client
-	urls := strings.Split(os.Getenv("OPENSEARCH_URLS"), ",")
 	username := os.Getenv("OPENSEARCH_USERNAME")
 	password := os.Getenv("OPENSEARCH_PASSWORD")
 
 	cfg := &config.Config{
-		URLs:        urls,
+		URLs:        []string{"https://opensearch.svc:9200"},
 		Username:    username,
 		Password:    password,
 		Sniff:       ptr.To[bool](false),
