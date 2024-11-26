@@ -1,13 +1,8 @@
 {
   "name": "opensearchtools",
-  "engineVersion": "v0.13.7",
+  "engineVersion": "v0.14.0",
   "sdk": "go",
   "dependencies": [
-    {
-      "name": "image",
-      "source": "github.com/disaster37/dagger-library-go/image",
-      "pin": "52140e653504ec3bc51a71bd1c6e7716b7e07f72"
-    },
     {
       "name": "codecov",
       "source": "github.com/kpenfound/dagger-modules/codecov@codecov/v0.1.1",
@@ -20,13 +15,18 @@
     },
     {
       "name": "golang",
-      "source": "github.com/purpleclay/daggerverse/golang@golang/v0.5.0",
-      "pin": "9f87a8c41f0edc2766602b75a5c52a681001d5b5"
+      "source": "github.com/disaster37/dagger-library-go/golang@v0.0.24",
+      "pin": "2d35aed06292796c4d2351b6336caa1f37247f7b"
     },
     {
       "name": "goreleaser",
       "source": "github.com/Excoriate/daggerverse/goreleaser@v1.15.4",
       "pin": "9987052c010bcbdda3b4c148c2e7b3fe73817f91"
+    },
+    {
+      "name": "image",
+      "source": "github.com/disaster37/dagger-library-go/image",
+      "pin": "52140e653504ec3bc51a71bd1c6e7716b7e07f72"
     }
   ],
   "source": "ci/dagger"

@@ -41,10 +41,6 @@ type Opensearchtools struct {
 	// +private
 	Src *dagger.Directory
 
-	// The golang base image
-	// +private
-	BaseImage *dagger.Container
-
 	// +private
 	GolangModule *dagger.Golang
 }
@@ -55,21 +51,10 @@ func New(
 	// +required
 	src *dagger.Directory,
 ) (*Opensearchtools, error) {
-	// Compute image because of base is not optional
-	version, err := inspectModVersion(context.Background(), src)
-	if err != nil {
-		return nil, err
-	}
-	base := defaultImage(version)
-	base = mountCaches(ctx, base).
-		WithDirectory(goWorkDir, src).
-		WithWorkdir(goWorkDir).
-		WithoutEntrypoint()
 
 	return &Opensearchtools{
 		Src:          src,
-		GolangModule: dag.Golang(base, src),
-		BaseImage:    base,
+		GolangModule: dag.Golang(src),
 	}, nil
 }
 
@@ -192,7 +177,7 @@ func (h *Opensearchtools) Test(
 		WithExposedPort(9200).
 		AsService()
 
-	return h.BaseImage.
+	return h.GolangModule.Container().
 		WithServiceBinding("opensearch.svc", opensearchService).
 		WithExec(helper.ForgeScript(`
 set -e
