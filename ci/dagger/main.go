@@ -51,7 +51,6 @@ func New(
 	// +required
 	src *dagger.Directory,
 ) (*Opensearchtools, error) {
-
 	return &Opensearchtools{
 		Src:          src,
 		GolangModule: dag.Golang(src),
