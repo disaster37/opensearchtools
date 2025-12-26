@@ -8,6 +8,8 @@ on:
       - 3.x
     tags:
       - "*"
+  release:
+    types: [published]
   pull_request:
     branches:
       - main
