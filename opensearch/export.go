@@ -147,7 +147,7 @@ func processExport(searchResult *opensearch.SearchResult, fields []string, separ
 					log.Errorf("Error when open file: %s", err.Error())
 					return err
 				}
-				defer file.Close()
+				defer func() { _ = file.Close() }()
 
 				listFiles[fileName] = file
 			}
@@ -158,7 +158,7 @@ func processExport(searchResult *opensearch.SearchResult, fields []string, separ
 			}
 
 			// Write result
-			_, err := file.WriteString(fmt.Sprintf("%s\n", strings.Join(td, separator)))
+			_, err := fmt.Fprintf(file, "%s\n", strings.Join(td, separator))
 			if err != nil {
 				log.Errorf("Error when write file: %s", err.Error())
 				return err

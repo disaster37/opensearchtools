@@ -15,7 +15,7 @@ func (s *ESTestSuite) TestExportDataToFiles() {
 	if err != nil {
 		s.T().Fatal(err)
 	}
-	defer os.RemoveAll(dir)
+	defer func(){ _ = os.RemoveAll(dir) }()
 
 	// Exports data without errors
 	err = exportDataToFiles("now-1000y", "now", "timestamp", "logs", "*", []string{"message"}, "|", "node_name", dir, s.client)
