@@ -26,9 +26,11 @@ jobs:
         with:
           version: "latest"
           verb: call
-          args: --src . ci --ci --version ${{ github.ref_name }} --code-cove-token env:CODECOV_TOKEN --git-token env:GITHUB_TOKEN --registry-username env:REGISTRY_USERNAME --registry-password env:REGISTRY_PASSWORD
+          args: --src . ci --ci --version ${{ github.ref_name }} --code-cove-token env:CODECOV_TOKEN --git-token env:GITHUB_TOKEN --registry-username env:REGISTRY_USERNAME --registry-password env:REGISTRY_PASSWORD --git-branch ${BRANCH_NAME} ${IS_TAG}
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REGISTRY_USERNAME: ${{ secrets.QUAY_USERNAME }}
           REGISTRY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
+          IS_TAG: ${{ github.ref_type == 'tag' && '--is-tag' || '' }}
+          BRANCH_NAME: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_type == 'tag' && 'main' || github.ref_name }}
