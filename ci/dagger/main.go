@@ -25,13 +25,13 @@ import (
 )
 
 const (
-	OpensearchVersion string = "2.18.0"
+	OpensearchVersion string = "3.4.0"
 	username          string = "admin"
 	password          string = "vLPeJYa8.3RqtZCcAK6jNz"
 	mockgenVersion           = "v0.3.0"
 	gitUsername       string = "ci"
 	gitEmail          string = "ci@localhost"
-	defaultGitBranch  string = "2.x"
+	defaultGitBranch  string = "3.x"
 	registry          string = "quay.io"
 	repository        string = "webcenter/opensearchtools"
 )
@@ -80,6 +80,17 @@ func (h *Opensearchtools) Ci(
 	// +optional
 	codeCoveToken *dagger.Secret,
 
+	// The git branch where you should to push
+	// You need to provide it when you are on PullRequest or on Tag
+	// +optional
+	gitBranch string,
+
+	// Set true if current build is a tag
+	// It will use the stable and alpha channel
+	// alpha channel only instead
+	// +optional
+	isTag bool,
+
 	// The git token
 	// +optional
 	gitToken *dagger.Secret,
@@ -111,25 +122,25 @@ func (h *Opensearchtools) Ci(
 			return nil, errors.Wrapf(err, "Error when upload report on CodeCov: %s", stdout)
 		}
 
-		// Create release on github with gorelease
-		if version != defaultGitBranch {
+		git := dag.GitModule(dir.WithDirectory("ci", h.Src.Directory("ci")), dagger.GitModuleOpts{Ci: "github"}).
+			SetConfig(dagger.GitModuleSetConfigOpts{
+				Username: gitUsername,
+				Email:    gitEmail,
+			})
 
-			githubToken, err := gitToken.Plaintext(ctx)
-			if err != nil {
-				return nil, errors.Wrap(err, "Error when get Github token")
-			}
-
-			if _, err = dag.Goreleaser().WithSource(h.Src).Release(ctx, dagger.GoreleaserReleaseOpts{
-				Clean:        true,
-				Cfg:          ".goreleaser.yml",
-				EnvVars:      []string{fmt.Sprintf("GITHUB_TOKEN=%s", githubToken)},
-				AutoSnapshot: true,
-			}); err != nil {
-				return nil, errors.Wrap(err, "Error when call Gorelease")
-			}
+		if isTag {
+			gitBranch = defaultGitBranch
 		}
 
-		if _, err = dag.Git().SetConfig(gitUsername, gitEmail, dagger.GitSetConfigOpts{BaseRepoURL: "github.com", Token: gitToken}).SetRepo(dir, dagger.GitSetRepoOpts{Branch: defaultGitBranch}).CommitAndPush(ctx, "Commit from CI. skip ci"); err != nil {
+		if _, err = git.CommitAndPush(
+			ctx,
+			gitToken,
+			dagger.GitModuleCommitAndPushOpts{
+				BranchName: gitBranch,
+				GitRepoURL: "https://github.com/disaster37/opensearch.git",
+				Message:    "Commit from CI",
+			},
+		); err != nil {
 			return nil, errors.Wrap(err, "Error when commit and push files change")
 		}
 	}
@@ -215,8 +226,7 @@ func (h *Opensearchtools) CodeCov(
 		src,
 		token,
 		dagger.CodecovUploadOpts{
-			Files:   []string{"coverage.out"},
-			Verbose: true,
+			Files: []string{"coverage.out"},
 		},
 	)
 }

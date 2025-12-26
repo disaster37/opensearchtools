@@ -7,12 +7,12 @@ A cli tools to help manage Opensearch
 You can download the opensearchtools from [release](https://github.com/disaster37/opensearchtools/releases)
 
 ### From docker registry
-You can get from registry: `quay.io/webcenter/opensearchtools:<tag_name>` or `quay.io/webcenter/opensearchtools:2.x`
+You can get from registry: `quay.io/webcenter/opensearchtools:<tag_name>` or `quay.io/webcenter/opensearchtools:3.x`
 
 ## Contribute
 
 You PR are always welcome. Please use the righ branch to do PR:
- - 2.x for Opensearch 2.x
+ - 3.x for Opensearch 3.x
 Don't forget to add test if you add some functionalities.
 
 To build, you can use the following command line:

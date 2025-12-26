@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/disaster37/opensearch/v2"
-	"github.com/disaster37/opensearch/v2/config"
+	"github.com/disaster37/opensearch/v3"
+	"github.com/disaster37/opensearch/v3/config"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"

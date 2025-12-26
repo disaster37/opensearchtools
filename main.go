@@ -5,7 +5,7 @@ import (
 	"os"
 	"sort"
 
-	localopensearch "github.com/disaster37/opensearchtools/v2/opensearch"
+	localopensearch "github.com/disaster37/opensearchtools/v3/opensearch"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 	"github.com/urfave/cli/v2/altsrc"

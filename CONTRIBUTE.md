@@ -2,7 +2,7 @@
 
 PR are always welcome.
 
-Please start from branch `2.x`
+Please start from branch `3.x`
 
 ## CI
 
