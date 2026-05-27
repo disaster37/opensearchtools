@@ -6,11 +6,14 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/disaster37/opensearch/v3"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
+	"github.com/timberio/go-datemath"
 	"github.com/urfave/cli/v2"
 )
 
@@ -85,53 +88,225 @@ func exportDataToFiles(fromDate string, toDate string, dateField string, index s
 
 	// Search on all index, without needed to work index by index
 	if !isOpenClosedIndex {
-		// Build query
-		rangeDateQuery := opensearch.NewRangeQuery(dateField).
-			Gte(fromDate).
-			Lte(toDate)
-		stringQuery := opensearch.NewQueryStringQuery(query).
-			AnalyzeWildcard(true)
-		boolQuery := opensearch.NewBoolQuery().Must(rangeDateQuery, stringQuery)
-
-		// Forge payload
-		computedFields := append(fields, splitFileColumn)
-		scs := es.Scroll(index).
-			// DocvalueFields(computedFields...).
-			Size(size).
-			Query(boolQuery).
-			Sort(dateField, true).
-			FetchSourceContext(opensearch.NewFetchSourceContext(true).Include(computedFields...)).
-			TrackTotalHits(true)
-
-		// Get records over scroll
-		firstLoop := true
-		for {
-			searchResult, err := scs.Do(ctx)
-			if err == io.EOF {
-				break
-			}
-			if err != nil {
-				return err
-			}
-
-			if firstLoop {
-				firstLoop = false
-				log.Infof("Found %d document to export", searchResult.TotalHits())
-			}
-
-			if err = processExport(searchResult, fields, separator, path, splitFileColumn); err != nil {
-				return err
-			}
-		}
+		return exportDataToFilesWithoutClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, es)
 	} else {
-		// Need to check if index is datastream
-		indexResponse, err := es.IndexGet(index).Do(ctx)
-		es.Index
-		if err != nil {
-			return errors.Wrapf(err, "error when get index %s", index)
+		// Work index by index
+		return exportDataToFilesWithClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, es)
+	}
+}
+
+func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, es *opensearch.Client) error {
+
+	// Build query
+	rangeDateQuery := opensearch.NewRangeQuery(dateField).
+		Gte(fromDate).
+		Lte(toDate)
+	stringQuery := opensearch.NewQueryStringQuery(query).
+		AnalyzeWildcard(true)
+	boolQuery := opensearch.NewBoolQuery().Must(rangeDateQuery, stringQuery)
+
+	// Forge payload
+	computedFields := append(fields, splitFileColumn)
+	scs := es.Scroll(index).
+		// DocvalueFields(computedFields...).
+		Size(querySize).
+		Query(boolQuery).
+		Sort(dateField, true).
+		FetchSourceContext(opensearch.NewFetchSourceContext(true).Include(computedFields...)).
+		TrackTotalHits(true)
+
+	// Get records over scroll
+	firstLoop := true
+	for {
+		searchResult, err := scs.Do(ctx)
+		if err == io.EOF {
+			break
 		}
-		if indexResponse[index] != nil {
-			indexResponse[index].
+		if err != nil {
+			return err
+		}
+
+		if firstLoop {
+			firstLoop = false
+			log.Infof("Found %d document to export", searchResult.TotalHits())
+		}
+
+		if err = processExport(searchResult, fields, separator, path, splitFileColumn); err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+}
+
+func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, es *opensearch.Client) error {
+
+	// Check if data stream index first
+	datastreamIndexResponse, err := es.GetDataStreamIndex(index).Do(ctx)
+	if err != nil {
+		return errors.Errorf("The index %s is not a data stream index. You can't use 'open-index' parameter", index)
+	}
+
+	fromDateExpr, err := datemath.Parse(fromDate)
+	if err != nil {
+		return errors.Wrapf(err, "error to parse date %s", fromDate)
+	}
+	fromDateTime := fromDateExpr.Time()
+
+	toDateExpr, err := datemath.Parse(toDate)
+	if err != nil {
+		return errors.Wrapf(err, "error to parse date %s", toDate)
+	}
+	toDateTime := toDateExpr.Time()
+
+	// Build query
+	rangeDateQuery := opensearch.NewRangeQuery(dateField).
+		Gte(fromDate).
+		Lte(toDate)
+	stringQuery := opensearch.NewQueryStringQuery(query).
+		AnalyzeWildcard(true)
+	boolQuery := opensearch.NewBoolQuery().Must(rangeDateQuery, stringQuery)
+
+	var creationDate time.Time
+	isFoundStartingIndex := false
+
+	// Loop over index and search the index creation time that match the date range
+	for i, datastreamIndex := range datastreamIndexResponse.Datastreams {
+
+		logrus.Debugf("Check index %s", datastreamIndex.Name)
+
+		index, err := es.IndexGet(datastreamIndex.Name).Do(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "error to get index %s", datastreamIndex.Name)
+		}
+
+		if index[datastreamIndex.Name] != nil {
+			unixTimeStamp := index[datastreamIndex.Name].Settings["index.creation_date"].(int64)
+			// Convert unix to date time
+			creationDate = time.Unix(unixTimeStamp/1000, 0)
+		} else {
+			return errors.Errorf("error to get index %s", datastreamIndex.Name)
+		}
+
+		// Check if is the starting index
+		if !isFoundStartingIndex && creationDate.After(fromDateTime) {
+			if i > 0 {
+				logrus.Debugf("Found starting index %s", datastreamIndexResponse.Datastreams[i-1].Name)
+				// Process previous index
+				logrus.Infof("Process index %s", datastreamIndexResponse.Datastreams[i-1].Name)
+				if err = processIndex(ctx, datastreamIndexResponse.Datastreams[i-1].Name, querySize, boolQuery, fields, dateField, separator, splitFileColumn, path, es); err != nil {
+					return err
+				}
+
+			} else {
+				logrus.Debugf("Found starting index %s", datastreamIndex.Name)
+			}
+			isFoundStartingIndex = true
+		}
+
+		if isFoundStartingIndex && creationDate.Before(toDateTime) {
+			// Process index
+			logrus.Infof("Process index %s", datastreamIndex.Name)
+			if err = processIndex(ctx, datastreamIndex.Name, querySize, boolQuery, fields, dateField, separator, splitFileColumn, path, es); err != nil {
+				return err
+			}
+		}
+
+		// Check if is the ending index
+		if isFoundStartingIndex && creationDate.After(toDateTime) {
+			logrus.Debugf("Found ending index %s", datastreamIndex.Name)
+			logrus.Infof("Process index %s", datastreamIndex.Name)
+			if err = processIndex(ctx, datastreamIndex.Name, querySize, boolQuery, fields, dateField, separator, splitFileColumn, path, es); err != nil {
+				return err
+			}
+			break
+		}
+	}
+
+	// Forge payload
+	computedFields := append(fields, splitFileColumn)
+	scs := es.Scroll(index).
+		// DocvalueFields(computedFields...).
+		Size(querySize).
+		Query(boolQuery).
+		Sort(dateField, true).
+		FetchSourceContext(opensearch.NewFetchSourceContext(true).Include(computedFields...)).
+		TrackTotalHits(true)
+
+	// Get records over scroll
+	firstLoop := true
+	for {
+		searchResult, err := scs.Do(ctx)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		if firstLoop {
+			firstLoop = false
+			log.Infof("Found %d document to export", searchResult.TotalHits())
+		}
+
+		if err = processExport(searchResult, fields, separator, path, splitFileColumn); err != nil {
+			return err
+		}
+	}
+
+	return nil
+
+}
+
+func processIndex(ctx context.Context, index string, querySize int, query opensearch.Query, fields []string, dateField, separator, splitFileColumn, path string, es *opensearch.Client) (err error) {
+	indexState, err := es.CatIndices().Index(index).Do(ctx)
+	if err != nil {
+		return errors.Wrapf(err, "error to get index %s", index)
+	}
+
+	if indexState[0].Status == "close" {
+		// Reopen index
+		_, err = es.OpenIndex(index).Do(ctx)
+		if err != nil {
+			return errors.Wrapf(err, "error to open index %s", index)
+		}
+		defer func() {
+			_, err = es.CloseIndex(index).Do(ctx)
+			if err != nil {
+				log.Errorf("error to close index %s", index)
+			}
+		}()
+	}
+
+	// Forge payload
+	computedFields := append(fields, splitFileColumn)
+	scs := es.Scroll(index).
+		// DocvalueFields(computedFields...).
+		Size(querySize).
+		Query(query).
+		Sort(dateField, true).
+		FetchSourceContext(opensearch.NewFetchSourceContext(true).Include(computedFields...)).
+		TrackTotalHits(true)
+
+	// Get records over scroll
+	firstLoop := true
+	for {
+		searchResult, err := scs.Do(ctx)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		if firstLoop {
+			firstLoop = false
+			log.Infof("Found %d document to export", searchResult.TotalHits())
+		}
+
+		if err = processExport(searchResult, fields, separator, path, splitFileColumn); err != nil {
+			return err
 		}
 	}
 

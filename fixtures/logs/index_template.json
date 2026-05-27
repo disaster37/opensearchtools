@@ -1,0 +1,5 @@
+{
+  "index_patterns": ["test*"],
+  "data_stream": {},
+  "priority": 100
+}
