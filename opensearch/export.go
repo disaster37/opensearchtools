@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -186,7 +187,13 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 			}
 
 			if index[indice.IndexName] != nil {
-				unixTimeStamp := index[indice.IndexName].Settings["index"].(map[string]any)["creation_date"].(int64)
+				unixTimeStampStr := index[indice.IndexName].Settings["index"].(map[string]any)["creation_date"].(string)
+				logrus.Debugf("Index creation time: %s", unixTimeStampStr)
+
+				unixTimeStamp, err := strconv.ParseInt(unixTimeStampStr, 10, 64)
+				if err != nil {
+					return errors.Wrapf(err, "error to parse index creation time %s", unixTimeStampStr)
+				}
 				// Convert unix to date time
 				creationDate = time.Unix(unixTimeStamp/1000, 0)
 			} else {
