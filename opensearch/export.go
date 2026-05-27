@@ -172,86 +172,60 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 	isFoundStartingIndex := false
 
 	// Loop over index and search the index creation time that match the date range
-	for i, datastreamIndex := range datastreamIndexResponse.Datastreams {
+	for _, datastreamIndex := range datastreamIndexResponse.Datastreams {
 
-		logrus.Debugf("Check index %s", datastreamIndex.Name)
+		logrus.Debugf("Process data stream index %s", datastreamIndex.Name)
 
-		index, err := es.IndexGet(datastreamIndex.Name).Do(ctx)
-		if err != nil {
-			return errors.Wrapf(err, "error to get index %s", datastreamIndex.Name)
-		}
+		for i, indice := range datastreamIndex.Indices {
 
-		if index[datastreamIndex.Name] != nil {
-			unixTimeStamp := index[datastreamIndex.Name].Settings["index.creation_date"].(int64)
-			// Convert unix to date time
-			creationDate = time.Unix(unixTimeStamp/1000, 0)
-		} else {
-			return errors.Errorf("error to get index %s", datastreamIndex.Name)
-		}
+			logrus.Debugf("Check index %s", indice.IndexName)
 
-		// Check if is the starting index
-		if !isFoundStartingIndex && creationDate.After(fromDateTime) {
-			if i > 0 {
-				logrus.Debugf("Found starting index %s", datastreamIndexResponse.Datastreams[i-1].Name)
-				// Process previous index
-				logrus.Infof("Process index %s", datastreamIndexResponse.Datastreams[i-1].Name)
-				if err = processIndex(ctx, datastreamIndexResponse.Datastreams[i-1].Name, querySize, boolQuery, fields, dateField, separator, splitFileColumn, path, es); err != nil {
+			index, err := es.IndexGet(indice.IndexName).Do(ctx)
+			if err != nil {
+				return errors.Wrapf(err, "error to get index %s", indice.IndexName)
+			}
+
+			if index[indice.IndexName] != nil {
+				unixTimeStamp := index[indice.IndexName].Settings["index.creation_date"].(int64)
+				// Convert unix to date time
+				creationDate = time.Unix(unixTimeStamp/1000, 0)
+			} else {
+				return errors.Errorf("error to get index %s", indice.IndexName)
+			}
+
+			// Check if is the starting index
+			if !isFoundStartingIndex && creationDate.After(fromDateTime) {
+				if i > 0 {
+					logrus.Debugf("Found starting index %s", datastreamIndex.Indices[i-1].IndexName)
+					// Process previous index
+					logrus.Infof("Process index %s", datastreamIndex.Indices[i-1].IndexName)
+					if err = processIndex(ctx, datastreamIndex.Indices[i-1].IndexName, querySize, boolQuery, fields, dateField, separator, splitFileColumn, path, es); err != nil {
+						return err
+					}
+
+				} else {
+					logrus.Debugf("Found starting index %s", indice.IndexName)
+				}
+				isFoundStartingIndex = true
+			}
+
+			if isFoundStartingIndex && creationDate.Before(toDateTime) {
+				// Process index
+				logrus.Infof("Process index %s", indice.IndexName)
+				if err = processIndex(ctx, indice.IndexName, querySize, boolQuery, fields, dateField, separator, splitFileColumn, path, es); err != nil {
 					return err
 				}
-
-			} else {
-				logrus.Debugf("Found starting index %s", datastreamIndex.Name)
 			}
-			isFoundStartingIndex = true
-		}
 
-		if isFoundStartingIndex && creationDate.Before(toDateTime) {
-			// Process index
-			logrus.Infof("Process index %s", datastreamIndex.Name)
-			if err = processIndex(ctx, datastreamIndex.Name, querySize, boolQuery, fields, dateField, separator, splitFileColumn, path, es); err != nil {
-				return err
+			// Check if is the ending index
+			if isFoundStartingIndex && creationDate.After(toDateTime) {
+				logrus.Debugf("Found ending index %s", indice.IndexName)
+				logrus.Infof("Process index %s", indice.IndexName)
+				if err = processIndex(ctx, indice.IndexName, querySize, boolQuery, fields, dateField, separator, splitFileColumn, path, es); err != nil {
+					return err
+				}
+				break
 			}
-		}
-
-		// Check if is the ending index
-		if isFoundStartingIndex && creationDate.After(toDateTime) {
-			logrus.Debugf("Found ending index %s", datastreamIndex.Name)
-			logrus.Infof("Process index %s", datastreamIndex.Name)
-			if err = processIndex(ctx, datastreamIndex.Name, querySize, boolQuery, fields, dateField, separator, splitFileColumn, path, es); err != nil {
-				return err
-			}
-			break
-		}
-	}
-
-	// Forge payload
-	computedFields := append(fields, splitFileColumn)
-	scs := es.Scroll(index).
-		// DocvalueFields(computedFields...).
-		Size(querySize).
-		Query(boolQuery).
-		Sort(dateField, true).
-		FetchSourceContext(opensearch.NewFetchSourceContext(true).Include(computedFields...)).
-		TrackTotalHits(true)
-
-	// Get records over scroll
-	firstLoop := true
-	for {
-		searchResult, err := scs.Do(ctx)
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		if firstLoop {
-			firstLoop = false
-			log.Infof("Found %d document to export", searchResult.TotalHits())
-		}
-
-		if err = processExport(searchResult, fields, separator, path, splitFileColumn); err != nil {
-			return err
 		}
 	}
 

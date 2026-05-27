@@ -109,6 +109,7 @@ __parameters__:
   - **separator**: The separator to concatain field when extract multi fields. Default to `|`
   - **split-file-field**: The field to use to split data into multi files. Default to `host.name`
   - **path**: The root path to create extracted files. Default to `.`
+  - **open-index**: If you want to export data from index that is closed.
 
 Sample of command:
 ```bash
