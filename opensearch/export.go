@@ -186,7 +186,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 			}
 
 			if index[indice.IndexName] != nil {
-				unixTimeStamp := index[indice.IndexName].Settings["index.creation_date"].(int64)
+				unixTimeStamp := index[indice.IndexName].Settings["index"].(map[string]any)["creation_date"].(int64)
 				// Convert unix to date time
 				creationDate = time.Unix(unixTimeStamp/1000, 0)
 			} else {
