@@ -25,8 +25,8 @@ func manageOpensearchGlobalParameters(c *cli.Context) (*opensearch.Client, error
 		URLs:        c.StringSlice("urls"),
 		Username:    c.String("user"),
 		Password:    c.String("password"),
-		Sniff:       ptr.To[bool](false),
-		Healthcheck: ptr.To[bool](false),
+		Sniff:       ptr.To(false),
+		Healthcheck: ptr.To(false),
 	}
 	if c.Bool("self-signed-certificate") {
 		cfg.Transport = &http.Transport{

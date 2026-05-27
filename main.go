@@ -145,6 +145,11 @@ func run(args []string) error {
 					Usage:    "To query to export data",
 					Required: true,
 				},
+				&cli.BoolFlag{
+					Name:  "open-index",
+					Usage: "Set true to auto open closed indexes",
+					Value: false,
+				},
 				&cli.StringSliceFlag{
 					Name:  "fields",
 					Usage: "Fields to extracts",

@@ -1,35 +1,31 @@
 {
   "name": "opensearchtools",
-  "engineVersion": "v0.16.1",
+  "engineVersion": "v0.20.8",
   "sdk": {
     "source": "go"
   },
   "dependencies": [
     {
       "name": "codecov",
-      "source": "github.com/disaster37/dagger-library-go/codecov@v2",
-      "pin": "07b0229c2fd00b715c887e2d6cd327cadef6c3ea"
+      "source": "github.com/disaster37/dagger-library-go/codecov@2.0.0",
+      "pin": "98e1f485801e91e802da616dc0211ef3419e3794"
     },
     {
       "name": "git-module",
-      "source": "github.com/disaster37/dagger-library-go/git-module@v2",
-      "pin": "07b0229c2fd00b715c887e2d6cd327cadef6c3ea"
+      "source": "github.com/disaster37/dagger-library-go/git-module@2.0.0",
+      "pin": "98e1f485801e91e802da616dc0211ef3419e3794"
     },
     {
       "name": "golang",
-      "source": "github.com/disaster37/dagger-library-go/golang@v2",
-      "pin": "07b0229c2fd00b715c887e2d6cd327cadef6c3ea"
-    },
-    {
-      "name": "goreleaser",
-      "source": "github.com/Excoriate/daggerverse/goreleaser@v1.15.4",
-      "pin": "9987052c010bcbdda3b4c148c2e7b3fe73817f91"
+      "source": "github.com/disaster37/dagger-library-go/golang@2.0.0",
+      "pin": "98e1f485801e91e802da616dc0211ef3419e3794"
     },
     {
       "name": "image",
-      "source": "github.com/disaster37/dagger-library-go/image@v2",
-      "pin": "07b0229c2fd00b715c887e2d6cd327cadef6c3ea"
+      "source": "github.com/disaster37/dagger-library-go/image@2.0.0",
+      "pin": "98e1f485801e91e802da616dc0211ef3419e3794"
     }
   ],
-  "source": "ci/dagger"
+  "source": "ci/dagger",
+  "disableDefaultFunctionCaching": true
 }

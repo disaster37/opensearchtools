@@ -1,16 +1,16 @@
 module github.com/disaster37/opensearchtools/v3
 
-go 1.25
+go 1.26
 
 require (
-	github.com/disaster37/opensearch/v3 v3.4.0
+	github.com/disaster37/opensearch/v3 v3.4.1
 	github.com/pkg/errors v0.9.1
-	github.com/sirupsen/logrus v1.9.3
+	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.11.1
-	github.com/tidwall/gjson v1.18.0
+	github.com/tidwall/gjson v1.19.0
 	github.com/urfave/cli/v2 v2.27.7
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
-	k8s.io/utils v0.0.0-20251222233032-718f0e51e6d2
+	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
 )
 
 require (

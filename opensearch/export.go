@@ -31,6 +31,7 @@ func ExportDataToFiles(c *cli.Context) error {
 	separator := c.String("separator")
 	splitFileField := c.String("split-file-field")
 	path := c.String("path")
+	isOpenClosedIndex := c.Bool("open-index")
 
 	if path == "" {
 		return errors.New("You must set --path")
@@ -42,7 +43,7 @@ func ExportDataToFiles(c *cli.Context) error {
 		return errors.New("You must set --query")
 	}
 
-	err = exportDataToFiles(from, to, dateField, index, query, fields, separator, splitFileField, path, es)
+	err = exportDataToFiles(from, to, dateField, index, query, isOpenClosedIndex, fields, separator, splitFileField, path, es)
 	if err != nil {
 		return err
 	}
@@ -52,7 +53,7 @@ func ExportDataToFiles(c *cli.Context) error {
 	return nil
 }
 
-func exportDataToFiles(fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, es *opensearch.Client) error {
+func exportDataToFiles(fromDate string, toDate string, dateField string, index string, query string, isOpenClosedIndex bool, fields []string, separator string, splitFileColumn string, path string, es *opensearch.Client) error {
 	if path == "" {
 		return errors.New("You must provide path")
 	}
@@ -80,43 +81,57 @@ func exportDataToFiles(fromDate string, toDate string, dateField string, index s
 	log.Debugf("separator: %s", separator)
 	log.Debugf("splitFileColumn: %s", splitFileColumn)
 	log.Debugf("path: %s", path)
+	log.Debugf("isOpenClosedIndex: %t", isOpenClosedIndex)
 
-	// Build query
-	rangeDateQuery := opensearch.NewRangeQuery(dateField).
-		Gte(fromDate).
-		Lte(toDate)
-	stringQuery := opensearch.NewQueryStringQuery(query).
-		AnalyzeWildcard(true)
-	boolQuery := opensearch.NewBoolQuery().Must(rangeDateQuery, stringQuery)
+	// Search on all index, without needed to work index by index
+	if !isOpenClosedIndex {
+		// Build query
+		rangeDateQuery := opensearch.NewRangeQuery(dateField).
+			Gte(fromDate).
+			Lte(toDate)
+		stringQuery := opensearch.NewQueryStringQuery(query).
+			AnalyzeWildcard(true)
+		boolQuery := opensearch.NewBoolQuery().Must(rangeDateQuery, stringQuery)
 
-	// Forge payload
-	computedFields := append(fields, splitFileColumn)
-	scs := es.Scroll(index).
-		// DocvalueFields(computedFields...).
-		Size(size).
-		Query(boolQuery).
-		Sort(dateField, true).
-		FetchSourceContext(opensearch.NewFetchSourceContext(true).Include(computedFields...)).
-		TrackTotalHits(true)
+		// Forge payload
+		computedFields := append(fields, splitFileColumn)
+		scs := es.Scroll(index).
+			// DocvalueFields(computedFields...).
+			Size(size).
+			Query(boolQuery).
+			Sort(dateField, true).
+			FetchSourceContext(opensearch.NewFetchSourceContext(true).Include(computedFields...)).
+			TrackTotalHits(true)
 
-	// Get records over scroll
-	firstLoop := true
-	for {
-		searchResult, err := scs.Do(ctx)
-		if err == io.EOF {
-			break
+		// Get records over scroll
+		firstLoop := true
+		for {
+			searchResult, err := scs.Do(ctx)
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return err
+			}
+
+			if firstLoop {
+				firstLoop = false
+				log.Infof("Found %d document to export", searchResult.TotalHits())
+			}
+
+			if err = processExport(searchResult, fields, separator, path, splitFileColumn); err != nil {
+				return err
+			}
 		}
+	} else {
+		// Need to check if index is datastream
+		indexResponse, err := es.IndexGet(index).Do(ctx)
+		es.Index
 		if err != nil {
-			return err
+			return errors.Wrapf(err, "error when get index %s", index)
 		}
-
-		if firstLoop {
-			firstLoop = false
-			log.Infof("Found %d document to export", searchResult.TotalHits())
-		}
-
-		if err = processExport(searchResult, fields, separator, path, splitFileColumn); err != nil {
-			return err
+		if indexResponse[index] != nil {
+			indexResponse[index].
 		}
 	}
 
