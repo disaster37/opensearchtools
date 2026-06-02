@@ -19,7 +19,7 @@ func (s *ESTestSuite) TestExportDataToFiles() {
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	// Exports data without errors
-	err = exportDataToFiles(context.Background(), "now-1000y", "now", "@timestamp", "logs", "*", false, []string{"message"}, "|", "node_name", dir, s.client)
+	err = exportDataToFiles(context.Background(), "now-1000y", "now", "@timestamp", "logs", "*", false, []string{"message"}, "|", "node_name", dir, "24h", s.client)
 	assert.NoError(s.T(), err)
 
 	// Check output file exists
@@ -42,7 +42,7 @@ func (s *ESTestSuite) TestExportDataToFilesWithOpenIndex() {
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	// Exports data without errors
-	err = exportDataToFiles(context.Background(), "now-1000y", "now", "@timestamp", "test", "*", true, []string{"message"}, "|", "node_name", dir, s.client)
+	err = exportDataToFiles(context.Background(), "now-1000y", "now", "@timestamp", "test", "*", true, []string{"message"}, "|", "node_name", dir, "24h", s.client)
 	assert.NoError(s.T(), err)
 
 	// Check output file exists

@@ -38,6 +38,7 @@ func ExportDataToFiles(c *cli.Context) error {
 	splitFileField := c.String("split-file-field")
 	path := c.String("path")
 	isOpenClosedIndex := c.Bool("open-index")
+	pitDuraction := c.String("pit-duration")
 
 	if path == "" {
 		return errors.New("You must set --path")
@@ -49,7 +50,7 @@ func ExportDataToFiles(c *cli.Context) error {
 		return errors.New("You must set --query")
 	}
 
-	err = exportDataToFiles(c.Context, from, to, dateField, index, query, isOpenClosedIndex, fields, separator, splitFileField, path, os)
+	err = exportDataToFiles(c.Context, from, to, dateField, index, query, isOpenClosedIndex, fields, separator, splitFileField, path, pitDuraction, os)
 	if err != nil {
 		return err
 	}
@@ -59,7 +60,7 @@ func ExportDataToFiles(c *cli.Context) error {
 	return nil
 }
 
-func exportDataToFiles(ctx context.Context, fromDate string, toDate string, dateField string, index string, query string, isOpenClosedIndex bool, fields []string, separator string, splitFileColumn string, path string, os opensearch.Client) error {
+func exportDataToFiles(ctx context.Context, fromDate string, toDate string, dateField string, index string, query string, isOpenClosedIndex bool, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) error {
 	if path == "" {
 		return errors.New("You must provide path")
 	}
@@ -87,17 +88,18 @@ func exportDataToFiles(ctx context.Context, fromDate string, toDate string, date
 	log.Debugf("splitFileColumn: %s", splitFileColumn)
 	log.Debugf("path: %s", path)
 	log.Debugf("isOpenClosedIndex: %t", isOpenClosedIndex)
+	log.Debugf("pitDuration: %s", pitDuration)
 
 	// Search on all index, without needed to work index by index
 	if !isOpenClosedIndex {
-		return exportDataToFilesWithoutClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, os)
+		return exportDataToFilesWithoutClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, os)
 	} else {
 		// Work index by index
-		return exportDataToFilesWithClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, os)
+		return exportDataToFilesWithClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, os)
 	}
 }
 
-func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, os opensearch.Client) error {
+func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) error {
 
 	// Build query
 	rangeDateQuery := querydsl.NewRangeQuery(dateField).
@@ -112,7 +114,7 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 		ctx,
 		&api.CreatePITRequest{
 			Indices:   []string{index},
-			KeepAlive: "30m",
+			KeepAlive: pitDuration,
 		},
 	)
 	if err != nil {
@@ -168,7 +170,7 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 
 }
 
-func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, os opensearch.Client) error {
+func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) error {
 
 	// Check if data stream index first
 	datastreamIndexResponse, err := os.Indices().GetDataStream(ctx, []string{index})
@@ -256,7 +258,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 					logrus.Debugf("Found starting index %s", datastreamIndex.Indices[i-1].IndexName)
 					// Process previous index
 					logrus.Infof("Process index %s", datastreamIndex.Indices[i-1].IndexName)
-					if err = handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, datastreamIndex.Indices[i-1].IndexName, query, fields, separator, splitFileColumn, path, os); err != nil {
+					if err = handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, datastreamIndex.Indices[i-1].IndexName, query, fields, separator, splitFileColumn, path, pitDuration, os); err != nil {
 						return err
 					}
 
@@ -269,7 +271,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 			if isFoundStartingIndex && creationDate.Before(toDateTime) {
 				// Process index
 				logrus.Infof("Process index %s", indice.IndexName)
-				if err = handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, indice.IndexName, query, fields, separator, splitFileColumn, path, os); err != nil {
+				if err = handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, indice.IndexName, query, fields, separator, splitFileColumn, path, pitDuration, os); err != nil {
 					return err
 				}
 			}
@@ -278,7 +280,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 			if isFoundStartingIndex && creationDate.After(toDateTime) {
 				logrus.Debugf("Found ending index %s", indice.IndexName)
 				logrus.Infof("Process index %s", indice.IndexName)
-				if err = handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, indice.IndexName, query, fields, separator, splitFileColumn, path, os); err != nil {
+				if err = handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, indice.IndexName, query, fields, separator, splitFileColumn, path, pitDuration, os); err != nil {
 					return err
 				}
 				break
@@ -291,7 +293,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 }
 
 // handleClosedIndex permit to open index if it's closed, process it and close it if it's not used by another session
-func handleClosedIndex(ctx context.Context, metadata *Metadata, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, os opensearch.Client) (err error) {
+func handleClosedIndex(ctx context.Context, metadata *Metadata, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) (err error) {
 	indexState, err := os.Cat().Indices(ctx, []string{index})
 	if err != nil {
 		return errors.Wrapf(err, "error to get index %s", index)
@@ -346,7 +348,7 @@ func handleClosedIndex(ctx context.Context, metadata *Metadata, querySize int, f
 
 	}
 
-	return exportDataToFilesWithoutClosedIndex(ctx, querySize, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, os)
+	return exportDataToFilesWithoutClosedIndex(ctx, querySize, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, os)
 }
 
 func processExport(searchResult *querydsl.SearchResult, fields []string, separator string, path string, splitFileColumn string) (err error) {
