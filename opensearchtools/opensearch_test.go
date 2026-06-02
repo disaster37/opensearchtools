@@ -2,24 +2,20 @@ package opensearchtools
 
 import (
 	"context"
-	"crypto/tls"
-	"net/http"
 	"os"
 	"testing"
 	"time"
 
-	"github.com/disaster37/opensearch/v3"
-	"github.com/disaster37/opensearch/v3/config"
+	"github.com/disaster37/opensearch/v4"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	prefixed "github.com/x-cray/logrus-prefixed-formatter"
-	"k8s.io/utils/ptr"
 )
 
 type ESTestSuite struct {
 	suite.Suite
-	client *opensearch.Client
+	client opensearch.Client
 }
 
 func (s *ESTestSuite) SetupSuite() {
@@ -31,20 +27,14 @@ func (s *ESTestSuite) SetupSuite() {
 	username := os.Getenv("OPENSEARCH_USERNAME")
 	password := os.Getenv("OPENSEARCH_PASSWORD")
 
-	cfg := &config.Config{
-		URLs:        []string{"https://opensearch.svc:9200"},
-		Username:    username,
-		Password:    password,
-		Sniff:       ptr.To[bool](false),
-		Healthcheck: ptr.To[bool](false),
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		},
+	cfg := &opensearch.Config{
+		URL:           "https://opensearch.svc:9200",
+		Username:      username,
+		Password:      password,
+		TLSSkipVerify: true,
 	}
 
-	client, err := opensearch.NewClientFromConfig(cfg)
+	client, err := opensearch.New(cfg, logrus.NewEntry(logrus.StandardLogger()))
 	if err != nil {
 		panic(err)
 	}
@@ -52,7 +42,7 @@ func (s *ESTestSuite) SetupSuite() {
 	// Wait es is online
 	isOnline := false
 	for isOnline == false {
-		if _, err = client.ClusterHealth().Do(context.Background()); err != nil {
+		if _, err = client.Cluster().Health(context.Background(), nil); err != nil {
 			time.Sleep(5 * time.Second)
 		} else {
 			isOnline = true
@@ -71,20 +61,20 @@ func TestESTestSuite(t *testing.T) {
 }
 
 func (s *ESTestSuite) TestCheckConnexion() {
-	err := checkConnexion(s.client)
+	err := checkConnexion(context.Background(), s.client)
 	assert.NoError(s.T(), err)
 }
 
 func (s *ESTestSuite) TestCheckCluster() {
-	clusterStatus, err := checkClusterStatus(s.client)
+	clusterStatus, err := checkClusterStatus(context.Background(), s.client)
 	assert.NoError(s.T(), err)
 	assert.Regexp(s.T(), "green|yellow", clusterStatus)
 }
 
 func (s *ESTestSuite) TestClusterRoutingAllocation() {
-	err := disableRoutingAllocation(s.client)
+	err := disableRoutingAllocation(context.Background(), s.client)
 	assert.NoError(s.T(), err)
 
-	err = enableRoutingAllocation(s.client)
+	err = enableRoutingAllocation(context.Background(), s.client)
 	assert.NoError(s.T(), err)
 }

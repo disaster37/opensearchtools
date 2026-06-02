@@ -195,12 +195,12 @@ sleep 10
 export USERNAME=%s
 export PASSWORD=%s
 curl --fail -XGET -k -u $USERNAME:$PASSWORD "https://opensearch.svc:9200/_cluster/health?wait_for_status=yellow&timeout=500s"
-curl --fail -u $USERNAME:$PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/logs/_bulk?pretty --data-binary @fixtures/logs/bulk.ndjson
+curl --fail -u $USERNAME:$PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/logs/_bulk?refresh=wait_for --data-binary @fixtures/logs/bulk.ndjson
 curl --fail -u $USERNAME:$PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_index_template/test -d @fixtures/logs/index_template.json
 curl --fail -u $USERNAME:$PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_data_stream/test
-curl --fail -u $USERNAME:$PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/test/_bulk?pretty --data-binary @fixtures/logs/bulk.ndjson
+curl --fail -u $USERNAME:$PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/test/_bulk?refresh=wait_for --data-binary @fixtures/logs/bulk.ndjson
 
-sleep 10
+sleep 30
 OPENSEARCH_USERNAME=$USERNAME OPENSEARCH_PASSWORD=$PASSWORD go test ./... -v -count 1 -parallel 1 -race -coverprofile=coverage.out -covermode=atomic -timeout 120m
 		`, username, password)).
 		File("coverage.out")

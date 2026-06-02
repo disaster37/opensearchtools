@@ -4,19 +4,21 @@ import (
 	"context"
 	"os"
 
-	"github.com/disaster37/opensearch/v3"
+	"github.com/disaster37/opensearch/v4"
+	"github.com/disaster37/opensearch/v4/api"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 )
 
+// CheckNodeOnline check if node is online
 func CheckNodeOnline(c *cli.Context) error {
-	es, err := manageOpensearchGlobalParameters(c)
+	osClient, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
 	}
 
-	isOnline, err := checkNodeOnline(es, c.String("node-name"), c.StringSlice("labels"))
+	isOnline, err := checkNodeOnline(c.Context, osClient, c.String("node-name"), c.StringSlice("labels"))
 	if err != nil {
 		return err
 	}
@@ -32,13 +34,14 @@ func CheckNodeOnline(c *cli.Context) error {
 	return nil
 }
 
+// CheckExpectedNumberNodes check if the number of nodes is the expected
 func CheckExpectedNumberNodes(c *cli.Context) error {
-	es, err := manageOpensearchGlobalParameters(c)
+	osClient, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
 	}
 
-	isExpected, err := checkExpectedNumberNodes(es, c.Int("number-nodes"))
+	isExpected, err := checkExpectedNumberNodes(c.Context, osClient, c.Int("number-nodes"))
 	if err != nil {
 		return err
 	}
@@ -54,8 +57,8 @@ func CheckExpectedNumberNodes(c *cli.Context) error {
 	return nil
 }
 
-func checkNodeOnline(es *opensearch.Client, nodeName string, labels []string) (bool, error) {
-	nodesInfo, err := es.NodesInfo().Do(context.Background())
+func checkNodeOnline(ctx context.Context, os opensearch.Client, nodeName string, labels []string) (bool, error) {
+	nodesInfo, err := os.Nodes().Info(ctx, &api.NodesInfoRequest{})
 	if err != nil {
 		return false, errors.Wrapf(err, "Error when get nodes info")
 	}
@@ -75,8 +78,8 @@ func checkNodeOnline(es *opensearch.Client, nodeName string, labels []string) (b
 	return false, nil
 }
 
-func checkExpectedNumberNodes(es *opensearch.Client, nodesNumber int) (bool, error) {
-	nodesInfo, err := es.NodesInfo().Do(context.Background())
+func checkExpectedNumberNodes(ctx context.Context, os opensearch.Client, nodesNumber int) (bool, error) {
+	nodesInfo, err := os.Nodes().Info(ctx, &api.NodesInfoRequest{})
 	if err != nil {
 		return false, errors.Wrapf(err, "Error when get nodes info")
 	}
