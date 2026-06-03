@@ -3,6 +3,7 @@ package opensearchtools
 import (
 	"context"
 	"os"
+	"time"
 
 	"github.com/disaster37/opensearch/v4"
 	"github.com/pkg/errors"
@@ -18,9 +19,12 @@ func manageOpensearchGlobalParameters(c *cli.Context) (opensearch.Client, error)
 
 	// Init opensearch client
 	cfg := &opensearch.Config{
-		URL:      c.String("url"),
-		Username: c.String("user"),
-		Password: c.String("password"),
+		URL:              c.String("url"),
+		Username:         c.String("user"),
+		Password:         c.String("password"),
+		RetryCount:       10,
+		RetryWaitTime:    1 * time.Second,
+		RetryMaxWaitTime: 10 * time.Second,
 	}
 	if c.Bool("self-signed-certificate") {
 		cfg.TLSSkipVerify = true
