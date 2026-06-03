@@ -101,6 +101,9 @@ func exportDataToFiles(ctx context.Context, fromDate string, toDate string, date
 
 func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) error {
 
+	// Normalize query
+	query = querydsl.NormalizeLuceneQuery(query)
+
 	// Build query
 	rangeDateQuery := querydsl.NewRangeQuery(dateField).
 		Gte(fromDate).
