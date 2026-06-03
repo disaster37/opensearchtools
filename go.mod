@@ -3,7 +3,7 @@ module github.com/disaster37/opensearchtools/v3
 go 1.26
 
 require (
-	github.com/disaster37/opensearch/v4 v4.0.0-3.0.20260602143259-83ba9f6ee535
+	github.com/disaster37/opensearch/v4 v4.0.0-3.0.20260603133640-977f073b98f0
 	github.com/google/uuid v1.6.0
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.4

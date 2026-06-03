@@ -133,6 +133,7 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 		Query(boolQuery).
 		Size(querySize).
 		Sort(dateField, true).
+		Sort("_shard_doc", true).
 		FetchSourceContext(querydsl.NewFetchSourceContext(true).Include(computedFields...)).
 		TrackTotalHits(true).
 		PointInTime(querydsl.NewPointInTime(pitResponse.PitId))

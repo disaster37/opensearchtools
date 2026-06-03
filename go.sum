@@ -11,6 +11,8 @@ github.com/disaster37/opensearch/v4 v4.0.0-3.0.20260602141800-77e0242a8260 h1:mm
 github.com/disaster37/opensearch/v4 v4.0.0-3.0.20260602141800-77e0242a8260/go.mod h1:B/hY8x/WzIjH5E5LxNASwX11zJj9OcF2SyJKtvNiGEQ=
 github.com/disaster37/opensearch/v4 v4.0.0-3.0.20260602143259-83ba9f6ee535 h1:70MA4YXY0W4F8Ipo2T9D2TTlJJa0WDw/+4i5V2BSId0=
 github.com/disaster37/opensearch/v4 v4.0.0-3.0.20260602143259-83ba9f6ee535/go.mod h1:B/hY8x/WzIjH5E5LxNASwX11zJj9OcF2SyJKtvNiGEQ=
+github.com/disaster37/opensearch/v4 v4.0.0-3.0.20260603133640-977f073b98f0 h1:5pTEbi68v1xwSfAPIzmRmNfbE4QTO3HARNh6tRYPWXE=
+github.com/disaster37/opensearch/v4 v4.0.0-3.0.20260603133640-977f073b98f0/go.mod h1:B/hY8x/WzIjH5E5LxNASwX11zJj9OcF2SyJKtvNiGEQ=
 github.com/fsnotify/fsnotify v1.4.7/go.mod h1:jwhsz4b93w/PPRr/qN1Yymfu8t87LnFCMoQvtojpjFo=
 github.com/fsnotify/fsnotify v1.4.9 h1:hsms1Qyu0jgnwNXIxa+/V/PDsU6CfLf6CNO8H7IWoS4=
 github.com/fsnotify/fsnotify v1.4.9/go.mod h1:znqG4EE+3YCdAaPaxE2ZRY/06pZUdp0tY4IgpuI1SZQ=
