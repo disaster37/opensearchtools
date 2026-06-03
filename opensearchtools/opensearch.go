@@ -26,7 +26,7 @@ func manageOpensearchGlobalParameters(c *cli.Context) (opensearch.Client, error)
 		cfg.TLSSkipVerify = true
 	}
 
-	os, err := opensearch.New(cfg, log.NewEntry(log.New()))
+	os, err := opensearch.New(cfg, log.NewEntry(log.StandardLogger()))
 	if err != nil {
 		return nil, err
 	}
