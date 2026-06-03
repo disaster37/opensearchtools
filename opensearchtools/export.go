@@ -363,6 +363,10 @@ func processExport(searchResult *querydsl.SearchResult, fields []string, separat
 
 			// Create target file to write result
 			jsonResult := gjson.ParseBytes(item.Source)
+			if jsonResult.Get(splitFileColumn).Str == "" {
+				log.Warnf("No value for field %s on document id %s", splitFileColumn, item.Id)
+				continue
+			}
 
 			fileName := fmt.Sprintf("%s/%s", path, jsonResult.Get(splitFileColumn))
 			file, ok := listFiles[fileName]
