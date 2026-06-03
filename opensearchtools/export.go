@@ -363,16 +363,19 @@ func processExport(searchResult *querydsl.SearchResult, fields []string, separat
 	if len(searchResult.Hits.Hits) > 0 {
 		listFiles := make(map[string]*os.File, 0)
 
+		var fileName string
+
 		for _, item := range searchResult.Hits.Hits {
 
 			// Create target file to write result
 			jsonResult := gjson.ParseBytes(item.Source)
 			if jsonResult.Get(splitFileColumn).Str == "" {
-				log.Warnf("No value for field %s on document id %s", splitFileColumn, item.Id)
-				continue
+				log.Debugf("No value for field %s on document id %s", splitFileColumn, item.Id)
+				fileName = fmt.Sprintf("%s/unknown_host", path)
+			} else {
+				fileName = fmt.Sprintf("%s/%s", path, jsonResult.Get(splitFileColumn))
 			}
 
-			fileName := fmt.Sprintf("%s/%s", path, jsonResult.Get(splitFileColumn))
 			file, ok := listFiles[fileName]
 			if !ok {
 				if _, err = os.Stat(fileName); os.IsNotExist(err) {
