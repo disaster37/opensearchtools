@@ -140,6 +140,8 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 
 	// Get records over scroll
 	firstLoop := true
+
+	logrus.Infof("Start search on Opensearch with index %s and search '%s", index, query)
 	for {
 		req, err := api.NewSearchRequest(reqDsl)
 		if err != nil {
@@ -224,6 +226,8 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 			logrus.Errorf("error to delete metadata document %s: %v", metadata.Id, err)
 		}
 	}()
+
+	logrus.Infof("Loop over index in datastream %s to found the starting index", index)
 
 	// Loop over index and search the index creation time that match the date range
 	for _, datastreamIndex := range datastreamIndexResponse.DataStreams {
