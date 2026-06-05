@@ -215,6 +215,7 @@ func cleanMetadataExportWithAutoOpenIndex(ctx context.Context, user string, sess
 	// Process each metadata document independently
 	for _, doc := range searchResponse.Hits.Hits {
 		metadata := new(Metadata)
+		logrus.Debugf("Doc source %s", string(doc.Source))
 		if err = gojson.Unmarshal(doc.Source, metadata); err != nil {
 			return errors.Wrapf(err, "error to unmarshal metadata export")
 		}
