@@ -224,7 +224,7 @@ func cleanMetadataExportWithAutoOpenIndex(ctx context.Context, user string, sess
 		}
 
 		// Delete the metadata document after its indexes are processed
-		if _, err = os.Document().Delete(ctx, &api.DeleteRequest{Index: metadataIndexName, Id: doc.Id}); err != nil {
+		if _, err = os.Document().Delete(ctx, &api.DeleteRequest{Index: metadataIndexName, Id: doc.Id, Params: &api.DeleteParams{Refresh: api.RefreshTrue}}); err != nil {
 			return errors.Wrapf(err, "error to delete metadata export with id %s", doc.Id)
 		}
 	}

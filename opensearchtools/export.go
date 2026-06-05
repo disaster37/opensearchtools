@@ -226,7 +226,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 
 	defer func() {
 		// Delete metadata document
-		if _, err := os.Document().Delete(ctx, &api.DeleteRequest{Index: metadataIndexName, Id: metadata.Id}); err != nil {
+		if _, err := os.Document().Delete(ctx, &api.DeleteRequest{Index: metadataIndexName, Id: metadata.Id, Params: &api.DeleteParams{Refresh: api.RefreshTrue}}); err != nil {
 			logrus.Errorf("error to delete metadata document %s: %v", metadata.Id, err)
 		}
 	}()
