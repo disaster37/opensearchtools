@@ -3,7 +3,8 @@ package opensearchtools
 import (
 	"context"
 	_ "embed"
-	"encoding/json"
+
+	gojson "github.com/goccy/go-json"
 
 	"github.com/disaster37/opensearch/v4"
 	"github.com/disaster37/opensearch/v4/api"
@@ -214,7 +215,7 @@ func cleanMetadataExportWithAutoOpenIndex(ctx context.Context, user string, sess
 	// Process each metadata document independently
 	for _, doc := range searchResponse.Hits.Hits {
 		metadata := new(Metadata)
-		if err = json.Unmarshal(doc.Source, metadata); err != nil {
+		if err = gojson.Unmarshal(doc.Source, metadata); err != nil {
 			return errors.Wrapf(err, "error to unmarshal metadata export")
 		}
 
