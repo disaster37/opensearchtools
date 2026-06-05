@@ -216,12 +216,11 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 		User:      authResponse.UserName,
 		SessionId: uuid.New().String(),
 		Indexes:   []string{},
+		Trigger:   "export",
 	}
-	indexResponse, err := os.Document().Index(ctx, &api.IndexRequest{Index: metadataIndexName, Body: metadata})
-	if err != nil {
+	if err = createMetdata(ctx, metadata, os); err != nil {
 		return errors.Wrap(err, "error to create metadata document")
 	}
-	metadata.Id = indexResponse.Id
 
 	defer func() {
 		// Delete metadata document
@@ -302,59 +301,19 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 
 // handleClosedIndex permit to open index if it's closed, process it and close it if it's not used by another session
 func handleClosedIndex(ctx context.Context, metadata *Metadata, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) (err error) {
-	indexState, err := os.Cat().Indices(ctx, []string{index})
-	if err != nil {
-		return errors.Wrapf(err, "error to get index %s", index)
+
+	if err = lockIndex(ctx, index, metadata, os); err != nil {
+		return errors.Wrapf(err, "error to lock index %s", index)
 	}
+	defer func() {
 
-	if indexState[0].Status == "close" {
-
-		// Reopen index
-		if resp, err := os.Indices().Open(ctx, index); err != nil || !resp.Acknowledged {
-			return errors.Wrapf(err, "error to open index %s", index)
-		}
-		defer func() {
-
-			// Check if index is already used on other session
-			// If not, close it
-			canBeClosed, err := isIndexCanBeClosed(ctx, index, os)
-			if err != nil {
-				log.Errorf("error to check if index %s can be closed", index)
-				return
-			}
-
-			if !canBeClosed {
-				logrus.Infof("Index %s elaready used by another session, skip close it", index)
-				return
-			}
-
-			// Close index
-			if resp, err := os.Indices().Close(ctx, index); err != nil || !resp.Acknowledged {
-				log.Errorf("error to close index %s", index)
-				return
-			}
-			logrus.Infof("Close index %s", index)
-
-			// Remove index from metadata
-			for i, idx := range metadata.Indexes {
-				if idx == index {
-					metadata.Indexes = append(metadata.Indexes[:i], metadata.Indexes[i+1:]...)
-					break
-				}
-
-				if _, err = os.Document().Index(ctx, &api.IndexRequest{Index: metadataIndexName, Id: metadata.Id, Body: metadata}); err != nil {
-					log.Errorf("error to update metadata %s", metadata.Id)
-				}
-			}
-		}()
-		logrus.Infof("Open index %s", index)
-
-		metadata.Indexes = append(metadata.Indexes, index)
-		if _, err = os.Document().Index(ctx, &api.IndexRequest{Index: metadataIndexName, Id: metadata.Id, Body: metadata}); err != nil {
-			return errors.Wrapf(err, "error to update metadata %s", metadata.Id)
+		// unlock index
+		err = unlockIndex(ctx, index, metadata, os)
+		if err != nil {
+			logrus.Errorf("Error when unlock index %s: %s", index, err.Error())
 		}
 
-	}
+	}()
 
 	return exportDataToFilesWithoutClosedIndex(ctx, querySize, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, os)
 }

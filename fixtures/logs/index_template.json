@@ -1,7 +1,7 @@
 {
-  "index_patterns": ["test*"],
+  "index_patterns": ["test*", "test-*"],
   "data_stream": {},
-  "priority": 100,
+  "priority": 1000,
   "template": {
     "settings": {
       "number_of_shards": 1,

@@ -13,6 +13,12 @@ import (
 	prefixed "github.com/x-cray/logrus-prefixed-formatter"
 )
 
+const (
+	host     string = "https://opensearch.svc:9200"
+	username string = "admin"
+	password string = "vLPeJYa8.3RqtZCcAK6jNz"
+)
+
 type ESTestSuite struct {
 	suite.Suite
 	client opensearch.Client
@@ -23,14 +29,35 @@ func (s *ESTestSuite) SetupSuite() {
 	logrus.SetFormatter(new(prefixed.TextFormatter))
 	logrus.SetLevel(logrus.DebugLevel)
 
+	var (
+		osUsername string
+		osPassword string
+		osHost     string
+	)
+
 	// Init client
-	username := os.Getenv("OPENSEARCH_USERNAME")
-	password := os.Getenv("OPENSEARCH_PASSWORD")
+	if os.Getenv("OPENSEARCH_HOST") != "" {
+		osHost = os.Getenv("OPENSEARCH_HOST")
+	} else {
+		osHost = host
+	}
+
+	if os.Getenv("OPENSEARCH_USERNAME") != "" {
+		osUsername = os.Getenv("OPENSEARCH_USERNAME")
+	} else {
+		osUsername = username
+	}
+
+	if os.Getenv("OPENSEARCH_PASSWORD") != "" {
+		osPassword = os.Getenv("OPENSEARCH_PASSWORD")
+	} else {
+		osPassword = password
+	}
 
 	cfg := &opensearch.Config{
-		URL:           "https://opensearch.svc:9200",
-		Username:      username,
-		Password:      password,
+		URL:           osHost,
+		Username:      osUsername,
+		Password:      osPassword,
 		TLSSkipVerify: true,
 	}
 

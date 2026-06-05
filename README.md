@@ -115,3 +115,11 @@ Sample of command:
 ```bash
 opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin --password changeme --self-signed-certificate export-data --from now-12h --to now --date-field "@timestamp" --index "logs-*" --query "labels.application: app1 AND labels.environment: staging" --fields log.original --split-file-field host.name --path /tmp
 ```
+
+https://127.0.0.1:9200/.opensearchtools/_search
+https://127.0.0.1:9200/.opensearchtools/_search
+
+
+curl -k -u admin:vLPeJYa8.3RqtZCcAK6jNz  -H 'Content-Type: application/json' -XPOST https://127.0.0.1:9200/.opensearchtools/_search -d '{"query":{"term":{"indexes":".ds-tet-metadata-000001"}}}
+
+curl -k -u admin:vLPeJYa8.3RqtZCcAK6jNz  -H 'Content-Type: application/json' -XPOST https://127.0.0.1:9200/.opensearchtools/_search -d '{"query":{"term":{"indexes":".ds-test-metadata-000001"}}}'
