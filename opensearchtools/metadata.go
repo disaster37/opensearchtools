@@ -220,6 +220,7 @@ func cleanMetadataExportWithAutoOpenIndex(ctx context.Context, user string, sess
 
 		// Close each index referenced in this metadata document
 		for _, index := range metadata.Indexes {
+			logrus.Debugf("Cleaning up index %s for metadata %s", index, metadata.Id)
 			unlockIndex(ctx, index, metadata, os)
 		}
 
