@@ -160,11 +160,14 @@ func unlockIndex(ctx context.Context, index string, metadata *Metadata, os opens
 }
 
 // cleanMetadataExportWithAutoOpenIndex clean metadata export with auto open index
-func cleanMetadataExportWithAutoOpenIndex(ctx context.Context, user string, os opensearch.Client) (err error) {
+func cleanMetadataExportWithAutoOpenIndex(ctx context.Context, user string, sessionId string, os opensearch.Client) (err error) {
 	// Search for metadata documents of export type (and optional user filter)
 	query := querydsl.NewBoolQuery().
 		Must(querydsl.NewTermQuery("type", MetadataTypeExportAutoOpenIndex)).
 		Must(querydsl.NewTermQuery("user", user))
+	if sessionId != "" {
+		query = query.Must(querydsl.NewTermQuery("sessionId", sessionId))
+	}
 
 	req, err := api.NewSearchRequest(
 		querydsl.NewSearchRequest().

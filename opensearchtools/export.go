@@ -3,9 +3,11 @@ package opensearchtools
 import (
 	"context"
 	"fmt"
-	"os"
+	stdos "os"
+	"os/signal"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/disaster37/opensearch/v4"
@@ -229,6 +231,19 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 		}
 	}()
 
+	// Register signal handler for graceful cleanup on Ctrl+C / kill
+	sigCh := make(chan stdos.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		logrus.Warn("Received termination signal, cleaning up...")
+		if cleanErr := cleanMetadataExportWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, os); cleanErr != nil {
+			logrus.Errorf("Error during cleanup: %v", cleanErr)
+		}
+		stdos.Exit(1)
+	}()
+	defer signal.Stop(sigCh)
+
 	logrus.Infof("Loop over index in datastream %s to found the starting index", index)
 
 	// Loop over index and search the index creation time that match the date range
@@ -323,7 +338,7 @@ func processExport(searchResult *querydsl.SearchResult, fields []string, separat
 
 	// Loop over results
 	if len(searchResult.Hits.Hits) > 0 {
-		listFiles := make(map[string]*os.File, 0)
+		listFiles := make(map[string]*stdos.File, 0)
 
 		var fileName string
 
@@ -340,11 +355,11 @@ func processExport(searchResult *querydsl.SearchResult, fields []string, separat
 
 			file, ok := listFiles[fileName]
 			if !ok {
-				if _, err = os.Stat(fileName); os.IsNotExist(err) {
+				if _, err = stdos.Stat(fileName); stdos.IsNotExist(err) {
 					log.Infof("Create file: %s", fileName)
 				}
 				log.Debugf("Open file %s", fileName)
-				file, err = os.OpenFile(fileName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+				file, err = stdos.OpenFile(fileName, stdos.O_APPEND|stdos.O_CREATE|stdos.O_WRONLY, 0o644)
 				if err != nil {
 					log.Errorf("Error when open file: %s", err.Error())
 					return err
