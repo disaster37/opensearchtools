@@ -8,6 +8,9 @@
       "@timestamp": {
         "type": "date"
       },
+      "sessionId": {
+        "type": "keyword"
+      },
       "type": {
           "type": "keyword"
       },
