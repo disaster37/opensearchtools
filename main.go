@@ -178,6 +178,11 @@ func run(args []string) error {
 			},
 			Action: localopensearch.ExportDataToFiles,
 		},
+		{
+			Name:     "clean-metadata",
+			Usage:    "Clean all metadata and close index that need to be. It's admin task",
+			Category: "Admin",
+		},
 	}
 
 	app.Before = func(c *cli.Context) error {

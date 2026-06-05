@@ -8,11 +8,11 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.11.1
+	github.com/thoas/go-funk v0.9.3
 	github.com/tidwall/gjson v1.19.0
 	github.com/timberio/go-datemath v0.1.0
 	github.com/urfave/cli/v2 v2.27.7
 	github.com/x-cray/logrus-prefixed-formatter v0.5.2
-	k8s.io/utils v0.0.0-20260507154919-ff6756f316d2
 )
 
 require (

@@ -10,6 +10,8 @@ import (
 	"github.com/disaster37/opensearch/v4/querydsl"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/thoas/go-funk"
+	"github.com/urfave/cli/v2"
 )
 
 const (
@@ -29,6 +31,27 @@ type Metadata struct {
 
 //go:embed files/template_opensearchtools.json
 var metadataIndexTemplate string
+
+// CleanMetata permit to clean metadata and close index that need to be
+func CleanMetata(c *cli.Context) error {
+	os, err := manageOpensearchGlobalParameters(c)
+	if err != nil {
+		return err
+	}
+
+	// Check use have role admin, it's admin task
+	authResp, err := os.Security().AuthInfo(c.Context)
+	if err != nil {
+		return errors.Wrap(err, "error to get auth info")
+	}
+
+	if !funk.ContainsString(authResp.Roles, "all_access") {
+		return errors.New("you must be admin to clean metadata")
+	}
+
+	return cleanMetadataExportWithAutoOpenIndex(c.Context, "", "", os)
+
+}
 
 // createMetadataindexIfNotExist with create index dedicated for metadata
 func createMetadataindexIfNotExist(ctx context.Context, os opensearch.Client) (err error) {
@@ -163,8 +186,12 @@ func unlockIndex(ctx context.Context, index string, metadata *Metadata, os opens
 func cleanMetadataExportWithAutoOpenIndex(ctx context.Context, user string, sessionId string, os opensearch.Client) (err error) {
 	// Search for metadata documents of export type (and optional user filter)
 	query := querydsl.NewBoolQuery().
-		Must(querydsl.NewTermQuery("type", MetadataTypeExportAutoOpenIndex)).
-		Must(querydsl.NewTermQuery("user", user))
+		Must(querydsl.NewTermQuery("type", MetadataTypeExportAutoOpenIndex))
+
+	if user != "" {
+		query = query.Must(querydsl.NewTermQuery("user", user))
+	}
+
 	if sessionId != "" {
 		query = query.Must(querydsl.NewTermQuery("sessionId", sessionId))
 	}
