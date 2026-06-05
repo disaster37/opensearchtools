@@ -215,15 +215,17 @@ func cleanMetadataExportWithAutoOpenIndex(ctx context.Context, user string, sess
 	// Process each metadata document independently
 	for _, doc := range searchResponse.Hits.Hits {
 		metadata := new(Metadata)
-		logrus.Debugf("Doc source %s", string(doc.Source))
 		if err = gojson.Unmarshal(doc.Source, metadata); err != nil {
 			return errors.Wrapf(err, "error to unmarshal metadata export")
 		}
+		metadata.Id = doc.Id
 
 		// Close each index referenced in this metadata document
 		for _, index := range metadata.Indexes {
 			logrus.Debugf("Cleaning up index %s for metadata %s", index, metadata.Id)
-			unlockIndex(ctx, index, metadata, os)
+			if err = unlockIndex(ctx, index, metadata, os); err != nil {
+				return err
+			}
 		}
 
 		// Delete the metadata document after its indexes are processed
