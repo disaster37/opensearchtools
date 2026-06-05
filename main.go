@@ -182,6 +182,7 @@ func run(args []string) error {
 			Name:     "clean-metadata",
 			Usage:    "Clean all metadata and close index that need to be. It's admin task",
 			Category: "Admin",
+			Action:   localopensearch.CleanMetata,
 		},
 	}
 
