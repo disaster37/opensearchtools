@@ -54,9 +54,18 @@ func CleanMetata(c *cli.Context) error {
 	if c.Bool("all") {
 		user = ""
 	}
-	
 
-	return cleanMetadataExportWithAutoOpenIndex(c.Context, user, "", os)
+	err = cleanMetadataExportWithAutoOpenIndex(c.Context, user, "", os)
+	if err != nil {
+		return err
+	}
+
+	err = cleanMetadataExploreWithAutoOpenIndex(c.Context, user, "", false, os)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // createMetadataindexIfNotExist with create index dedicated for metadata
