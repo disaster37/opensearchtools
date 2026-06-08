@@ -224,7 +224,9 @@ func cleanMetadataExportWithAutoOpenIndex(ctx context.Context, user string, sess
 		metadata.Id = doc.Id
 
 		// Close each index referenced in this metadata document
-		for _, index := range metadata.Indexes {
+		indexesCopy := make([]string, len(metadata.Indexes))
+		copy(indexesCopy, metadata.Indexes)
+		for _, index := range indexesCopy {
 			logrus.Debugf("Cleaning up index %s for metadata %s", index, metadata.Id)
 			if err = unlockIndex(ctx, index, metadata, os); err != nil {
 				return err
@@ -300,7 +302,9 @@ func cleanMetadataExploreWithAutoOpenIndex(ctx context.Context, user string, ses
 		metadata.Id = doc.Id
 
 		// Close each index referenced in this metadata document
-		for _, index := range metadata.Indexes {
+		indexesCopy := make([]string, len(metadata.Indexes))
+		copy(indexesCopy, metadata.Indexes)
+		for _, index := range indexesCopy {
 			logrus.Debugf("Cleaning up index %s for metadata %s", index, metadata.Id)
 			if err = unlockIndex(ctx, index, metadata, os); err != nil {
 				return err
