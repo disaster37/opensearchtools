@@ -182,7 +182,41 @@ func run(args []string) error {
 			Name:     "clean-metadata",
 			Usage:    "Clean all metadata and close index that need to be. It's admin task",
 			Category: "Admin",
-			Action:   localopensearch.CleanMetata,
+			Flags: []cli.Flag{
+				&cli.BoolFlag{
+					Name:  "all",
+					Usage: "To clean all metadata for all users",
+				},
+			},
+			Action: localopensearch.CleanMetata,
+		},
+		{
+			Name:     "open-index",
+			Usage:    "Open index permit to open index from a range of date to explore data on closed index.",
+			Category: "Admin",
+			Flags: []cli.Flag{
+				&cli.StringFlag{
+					Name:     "from",
+					Usage:    "The from date to open index",
+					Required: true,
+				},
+				&cli.StringFlag{
+					Name:     "to",
+					Usage:    "The to date to open index",
+					Required: true,
+				},
+				&cli.StringFlag{
+					Name:     "index",
+					Usage:    "The datastream index where open indexes",
+					Required: true,
+				},
+				&cli.IntFlag{
+					Name:  "max-number-indexes",
+					Usage: "The max numer of index to open",
+					Value: 3,
+				},
+			},
+			Action: localopensearch.OpenClosedIndex,
 		},
 	}
 

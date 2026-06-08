@@ -70,17 +70,18 @@ func (s *ESTestSuite) TestCleanMetadataExportWithAutoOpenIndex() {
 		User:      "tester",
 		SessionId: "sess1",
 		Indexes:   []string{},
-		Trigger:   "export",
 	}
 	err = createMetdata(context.Background(), meta1, s.client)
 	s.NoError(err)
 	s.NotEmpty(meta1.Id)
 
 	// lock indexes
-	err = lockIndex(context.Background(), idx1, meta1, s.client)
+	isOpenIndex, err := lockIndex(context.Background(), idx1, meta1, s.client)
 	s.NoError(err)
-	err = lockIndex(context.Background(), idx2, meta1, s.client)
+	s.True(isOpenIndex)
+	isOpenIndex, err = lockIndex(context.Background(), idx2, meta1, s.client)
 	s.NoError(err)
+	s.False(isOpenIndex)
 
 	count, err := countIndexInMetdata(context.Background(), idx1, s.client)
 	s.NoError(err)
@@ -118,21 +119,24 @@ func (s *ESTestSuite) TestCleanMetadataExportWithAutoOpenIndex() {
 		User:      "tester",
 		SessionId: "sess2",
 		Indexes:   []string{},
-		Trigger:   "export",
 	}
 	err = createMetdata(context.Background(), meta2, s.client)
 	s.NoError(err)
 	s.NotEmpty(meta2.Id)
 
 	// lock indexes
-	err = lockIndex(context.Background(), idx1, meta1, s.client)
+	isOpenIndex, err = lockIndex(context.Background(), idx1, meta1, s.client)
 	s.NoError(err)
-	err = lockIndex(context.Background(), idx2, meta1, s.client)
+	s.True(isOpenIndex)
+	isOpenIndex, err = lockIndex(context.Background(), idx2, meta1, s.client)
 	s.NoError(err)
-	err = lockIndex(context.Background(), idx1, meta2, s.client)
+	s.False(isOpenIndex)
+	isOpenIndex, err = lockIndex(context.Background(), idx1, meta2, s.client)
 	s.NoError(err)
-	err = lockIndex(context.Background(), idx2, meta2, s.client)
+	s.True(isOpenIndex)
+	isOpenIndex, err = lockIndex(context.Background(), idx2, meta2, s.client)
 	s.NoError(err)
+	s.False(isOpenIndex)
 
 	count, err = countIndexInMetdata(context.Background(), idx1, s.client)
 	s.NoError(err)
@@ -179,5 +183,4 @@ func (s *ESTestSuite) TestCleanMetadataExportWithAutoOpenIndex() {
 	catResult, err = s.client.Cat().Indices(context.Background(), []string{idx2})
 	assert.NoError(s.T(), err)
 	assert.Equal(s.T(), "open", catResult[0].Status)
-
 }

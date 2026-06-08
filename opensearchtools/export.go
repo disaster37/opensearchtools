@@ -5,17 +5,14 @@ import (
 	"fmt"
 	stdos "os"
 	"os/signal"
-	"strconv"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/disaster37/opensearch/v4"
 	"github.com/disaster37/opensearch/v4/api"
 	"github.com/disaster37/opensearch/v4/querydsl"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/tidwall/gjson"
 	"github.com/timberio/go-datemath"
@@ -102,7 +99,6 @@ func exportDataToFiles(ctx context.Context, fromDate string, toDate string, date
 }
 
 func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) error {
-
 	// Normalize query
 	query = querydsl.NormalizeLuceneQuery(query)
 
@@ -146,7 +142,7 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 	// Get records over scroll
 	firstLoop := true
 
-	logrus.Infof("Start search on Opensearch with index %s and search '%s", index, query)
+	log.Infof("Start search on Opensearch with index %s and search '%s", index, query)
 	for {
 		req, err := api.NewSearchRequest(reqDsl)
 		if err != nil {
@@ -175,17 +171,9 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 	}
 
 	return nil
-
 }
 
 func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) error {
-
-	// Check if data stream index first
-	datastreamIndexResponse, err := os.Indices().GetDataStream(ctx, []string{index})
-	if err != nil {
-		return errors.Errorf("The index %s is not a data stream index. You can't use 'open-index' parameter", index)
-	}
-
 	fromDateExpr, err := datemath.Parse(fromDate)
 	if err != nil {
 		return errors.Wrapf(err, "error to parse date %s", fromDate)
@@ -197,9 +185,6 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 		return errors.Wrapf(err, "error to parse date %s", toDate)
 	}
 	toDateTime := toDateExpr.Time()
-
-	var creationDate time.Time
-	isFoundStartingIndex := false
 
 	// Create metadata index
 	if err = createMetadataindexIfNotExist(ctx, os); err != nil {
@@ -218,7 +203,6 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 		User:      authResponse.UserName,
 		SessionId: uuid.New().String(),
 		Indexes:   []string{},
-		Trigger:   "export",
 	}
 	if err = createMetdata(ctx, metadata, os); err != nil {
 		return errors.Wrap(err, "error to create metadata document")
@@ -226,8 +210,8 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 
 	defer func() {
 		// Delete metadata document
-		if _, err := os.Document().Delete(ctx, &api.DeleteRequest{Index: metadataIndexName, Id: metadata.Id, Params: &api.DeleteParams{Refresh: api.RefreshTrue}}); err != nil {
-			logrus.Errorf("error to delete metadata document %s: %v", metadata.Id, err)
+		if err := cleanMetadataExportWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, os); err != nil {
+			log.Errorf("error to delete metadata document %s: %v", metadata.Id, err)
 		}
 	}()
 
@@ -236,98 +220,38 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		<-sigCh
-		logrus.Warn("Received termination signal, cleaning up...")
+		log.Warn("Received termination signal, cleaning up...")
 		if cleanErr := cleanMetadataExportWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, os); cleanErr != nil {
-			logrus.Errorf("Error during cleanup: %v", cleanErr)
+			log.Errorf("Error during cleanup: %v", cleanErr)
 		}
 		stdos.Exit(1)
 	}()
 	defer signal.Stop(sigCh)
 
-	logrus.Infof("Loop over index in datastream %s to found the starting index", index)
+	log.Infof("Loop over index in datastream %s to found the starting index", index)
 
-	// Loop over index and search the index creation time that match the date range
-	for _, datastreamIndex := range datastreamIndexResponse.DataStreams {
+	fn := func(ctx context.Context, indexName string) error {
+		return handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, indexName, query, fields, separator, splitFileColumn, path, pitDuration, os)
+	}
 
-		logrus.Debugf("Process data stream index %s", datastreamIndex.Name)
-
-		for i, indice := range datastreamIndex.Indices {
-
-			logrus.Debugf("Check index %s", indice.IndexName)
-
-			index, err := os.Indices().Get(ctx, []string{indice.IndexName})
-			if err != nil {
-				return errors.Wrapf(err, "error to get index %s", indice.IndexName)
-			}
-
-			if index[indice.IndexName] != nil {
-				unixTimeStampStr := index[indice.IndexName].Settings["index"].(map[string]any)["creation_date"].(string)
-				logrus.Debugf("Index creation time: %s", unixTimeStampStr)
-
-				unixTimeStamp, err := strconv.ParseInt(unixTimeStampStr, 10, 64)
-				if err != nil {
-					return errors.Wrapf(err, "error to parse index creation time %s", unixTimeStampStr)
-				}
-				// Convert unix to date time
-				creationDate = time.Unix(unixTimeStamp/1000, 0)
-			} else {
-				return errors.Errorf("error to get index %s", indice.IndexName)
-			}
-
-			// Check if is the starting index
-			if !isFoundStartingIndex && creationDate.After(fromDateTime) {
-				if i > 0 {
-					logrus.Debugf("Found starting index %s", datastreamIndex.Indices[i-1].IndexName)
-					// Process previous index
-					logrus.Infof("Process index %s", datastreamIndex.Indices[i-1].IndexName)
-					if err = handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, datastreamIndex.Indices[i-1].IndexName, query, fields, separator, splitFileColumn, path, pitDuration, os); err != nil {
-						return err
-					}
-
-				} else {
-					logrus.Debugf("Found starting index %s", indice.IndexName)
-				}
-				isFoundStartingIndex = true
-			}
-
-			if isFoundStartingIndex && creationDate.Before(toDateTime) {
-				// Process index
-				logrus.Infof("Process index %s", indice.IndexName)
-				if err = handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, indice.IndexName, query, fields, separator, splitFileColumn, path, pitDuration, os); err != nil {
-					return err
-				}
-			}
-
-			// Check if is the ending index
-			if isFoundStartingIndex && creationDate.After(toDateTime) {
-				logrus.Debugf("Found ending index %s", indice.IndexName)
-				logrus.Infof("Process index %s", indice.IndexName)
-				if err = handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, indice.IndexName, query, fields, separator, splitFileColumn, path, pitDuration, os); err != nil {
-					return err
-				}
-				break
-			}
-		}
+	if err := forEachIndexInDateRange(ctx, os, index, fromDateTime, toDateTime, fn); err != nil {
+		return err
 	}
 
 	return nil
-
 }
 
 // handleClosedIndex permit to open index if it's closed, process it and close it if it's not used by another session
 func handleClosedIndex(ctx context.Context, metadata *Metadata, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) (err error) {
-
-	if err = lockIndex(ctx, index, metadata, os); err != nil {
+	if _, err = lockIndex(ctx, index, metadata, os); err != nil {
 		return errors.Wrapf(err, "error to lock index %s", index)
 	}
 	defer func() {
-
 		// unlock index
 		err = unlockIndex(ctx, index, metadata, os)
 		if err != nil {
-			logrus.Errorf("Error when unlock index %s: %s", index, err.Error())
+			log.Errorf("Error when unlock index %s: %s", index, err.Error())
 		}
-
 	}()
 
 	return exportDataToFilesWithoutClosedIndex(ctx, querySize, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, os)

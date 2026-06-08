@@ -4,7 +4,9 @@ go 1.26
 
 require (
 	github.com/disaster37/opensearch/v4 v4.0.0-3.0.20260605131550-95eca67a2b5a
+	github.com/goccy/go-json v0.10.6
 	github.com/google/uuid v1.6.0
+	github.com/manifoldco/promptui v0.9.0
 	github.com/pkg/errors v0.9.1
 	github.com/sirupsen/logrus v1.9.4
 	github.com/stretchr/testify v1.11.1
@@ -17,6 +19,7 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.6.0 // indirect
+	github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.7 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.13 // indirect
@@ -24,7 +27,6 @@ require (
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.30.3 // indirect
 	github.com/go-resty/resty/v2 v2.17.2 // indirect
-	github.com/goccy/go-json v0.10.6 // indirect
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/leodido/go-urn v1.4.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect

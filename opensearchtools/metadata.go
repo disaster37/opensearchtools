@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	metadataIndexName               = ".opensearchtools"
-	MetadataTypeExportAutoOpenIndex = "export_data"
+	metadataIndexName                = ".opensearchtools"
+	MetadataTypeExportAutoOpenIndex  = "export_data"
+	MetadataTypeExploreAutoOpenIndex = "explore_data"
 )
 
 // Metadata is the struct to store metadata in opensearch
@@ -27,7 +28,6 @@ type Metadata struct {
 	User      string   `json:"user"`
 	SessionId string   `json:"sessionId"`
 	Indexes   []string `json:"indexes"`
-	Trigger   string   `json:"trigger,omitempty"`
 }
 
 //go:embed files/template_opensearchtools.json
@@ -46,17 +46,20 @@ func CleanMetata(c *cli.Context) error {
 		return errors.Wrap(err, "error to get auth info")
 	}
 
-	if !funk.ContainsString(authResp.Roles, "all_access") {
-		return errors.New("you must be admin to clean metadata")
+	if c.Bool("all") && !funk.ContainsString(authResp.Roles, "all_access") {
+		return errors.New("you must be admin to clean metadata for all users")
 	}
 
-	return cleanMetadataExportWithAutoOpenIndex(c.Context, "", "", os)
+	user := authResp.UserName
+	if c.Bool("all") {
+		user = ""
+	}
 
+	return cleanMetadataExportWithAutoOpenIndex(c.Context, user, "", os)
 }
 
 // createMetadataindexIfNotExist with create index dedicated for metadata
 func createMetadataindexIfNotExist(ctx context.Context, os opensearch.Client) (err error) {
-
 	isIndexExist, err := os.Indices().Exists(ctx, []string{metadataIndexName})
 	if err != nil {
 		return errors.Wrapf(err, "error to check if index %s exist", metadataIndexName)
@@ -70,7 +73,6 @@ func createMetadataindexIfNotExist(ctx context.Context, os opensearch.Client) (e
 	}
 
 	return nil
-
 }
 
 // createMetdata permit to create metadata document
@@ -86,26 +88,27 @@ func createMetdata(ctx context.Context, metadata *Metadata, os opensearch.Client
 }
 
 // lockIndex permit to open index if is closed
-// If index is closed, it track it on metadata
-// If index is open and already track on metadata, we add it on metadata to not close it by anoter processes
-func lockIndex(ctx context.Context, index string, metadata *Metadata, os opensearch.Client) (err error) {
+// If index is closed, it track it on metadata and return true
+// If index is open and already track on metadata, we add it on metadata to not close it by anoter processes and return true
+// If index is open and not track on metadata, we return false
+func lockIndex(ctx context.Context, index string, metadata *Metadata, os opensearch.Client) (opennedIndex bool, err error) {
 	var (
 		isClosed      bool
 		isAlreadyOpen bool
 	)
 
 	if metadata.Id == "" {
-		return errors.New("metadata id is empty")
+		return false, errors.New("metadata id is empty")
 	}
 
 	// Check if index is closed
 	indexState, err := os.Cat().Indices(ctx, []string{index})
 	if err != nil {
-		return errors.Wrapf(err, "error to get index %s", index)
+		return false, errors.Wrapf(err, "error to get index %s", index)
 	}
 
 	if len(indexState) == 0 {
-		return errors.Errorf("index %s not found", index)
+		return false, errors.Errorf("index %s not found", index)
 	}
 
 	logrus.Debugf("Index state: %+v", indexState)
@@ -116,7 +119,7 @@ func lockIndex(ctx context.Context, index string, metadata *Metadata, os opensea
 		// search if is normally closed index but already openned by another process
 		count, err := countIndexInMetdata(ctx, index, os)
 		if err != nil {
-			return errors.Wrapf(err, "error to check if index %s can be closed", index)
+			return false, errors.Wrapf(err, "error to check if index %s can be closed", index)
 		}
 
 		if count > 0 {
@@ -128,25 +131,25 @@ func lockIndex(ctx context.Context, index string, metadata *Metadata, os opensea
 	if isClosed || isAlreadyOpen {
 		metadata.Indexes = append(metadata.Indexes, index)
 		if _, err := os.Document().Index(ctx, &api.IndexRequest{Index: metadataIndexName, Id: metadata.Id, Body: metadata, Params: &api.IndexParams{Refresh: api.RefreshTrue}}); err != nil {
-			return errors.Wrapf(err, "error to update metadata %s", metadata.Id)
+			return false, errors.Wrapf(err, "error to update metadata %s", metadata.Id)
 		}
+		opennedIndex = true
 	}
 
 	// If index is closed, open it
 	if isClosed {
 		if resp, err := os.Indices().Open(ctx, index); err != nil || !resp.Acknowledged {
-			return errors.Wrapf(err, "error to open index %s", index)
+			return false, errors.Wrapf(err, "error to open index %s", index)
 		}
 		logrus.Infof("Open index %s", index)
 	}
 
-	return nil
+	return opennedIndex, nil
 }
 
 // unlockIndex permit to close index if it's not used by another session
 // The index must be present on metadata, else is regular index than can be closed
 func unlockIndex(ctx context.Context, index string, metadata *Metadata, os opensearch.Client) (err error) {
-
 	if metadata.Id == "" {
 		return errors.New("metadata id is empty")
 	}
@@ -240,11 +243,12 @@ func cleanMetadataExportWithAutoOpenIndex(ctx context.Context, user string, sess
 func countIndexInMetdata(ctx context.Context, indexName string, os opensearch.Client) (int, error) {
 	query := querydsl.NewTermQuery("indexes", indexName)
 
-	req, err := api.NewSearchRequest(querydsl.NewSearchRequest().
-		Index(metadataIndexName).
-		Query(query),
-	//Size(1000). // Don't return documents, only count
-	//TrackTotalHits(true),
+	req, err := api.NewSearchRequest(
+		querydsl.NewSearchRequest().
+			Index(metadataIndexName).
+			Query(query).
+			Size(10000).
+			TrackTotalHits(true),
 	)
 	if err != nil {
 		return 0, err
@@ -256,4 +260,60 @@ func countIndexInMetdata(ctx context.Context, indexName string, os opensearch.Cl
 	}
 
 	return int(res.Hits.TotalHits.Value), nil
+}
+
+// cleanMetadataExploreWithAutoOpenIndex clean metadata explore with auto open index
+func cleanMetadataExploreWithAutoOpenIndex(ctx context.Context, user string, sessionId string, closedOnly bool, os opensearch.Client) (err error) {
+	// Search for metadata documents of explore type (and optional user filter)
+	query := querydsl.NewBoolQuery().
+		Must(querydsl.NewTermQuery("type", MetadataTypeExploreAutoOpenIndex))
+
+	if user != "" {
+		query = query.Must(querydsl.NewTermQuery("user", user))
+	}
+
+	if sessionId != "" {
+		query = query.Must(querydsl.NewTermQuery("sessionId", sessionId))
+	}
+
+	req, err := api.NewSearchRequest(
+		querydsl.NewSearchRequest().
+			Index(metadataIndexName).
+			Query(query).
+			Size(10000),
+	)
+	if err != nil {
+		return err
+	}
+
+	searchResponse, err := os.Search().Search(ctx, req)
+	if err != nil {
+		return errors.Wrapf(err, "error to search metadata export")
+	}
+
+	// Process each metadata document independently
+	for _, doc := range searchResponse.Hits.Hits {
+		metadata := new(Metadata)
+		if err = gojson.Unmarshal(doc.Source, metadata); err != nil {
+			return errors.Wrapf(err, "error to unmarshal metadata export")
+		}
+		metadata.Id = doc.Id
+
+		// Close each index referenced in this metadata document
+		for _, index := range metadata.Indexes {
+			logrus.Debugf("Cleaning up index %s for metadata %s", index, metadata.Id)
+			if err = unlockIndex(ctx, index, metadata, os); err != nil {
+				return err
+			}
+		}
+
+		if !closedOnly {
+			// Delete the metadata document after its indexes are processed
+			if _, err = os.Document().Delete(ctx, &api.DeleteRequest{Index: metadataIndexName, Id: doc.Id, Params: &api.DeleteParams{Refresh: api.RefreshTrue}}); err != nil {
+				return errors.Wrapf(err, "error to delete metadata export with id %s", doc.Id)
+			}
+		}
+
+	}
+	return nil
 }

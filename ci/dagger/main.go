@@ -205,7 +205,6 @@ curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: ap
 curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/test/_bulk?refresh=wait_for --data-binary @fixtures/logs/bulk.ndjson
 sleep 10
 `)).Sync(ctx)
-
 	if err != nil {
 		return nil, err
 	}
