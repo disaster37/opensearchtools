@@ -20,7 +20,7 @@ import (
 
 // promptConfirmFunc is the function used to prompt the user for confirmation.
 // It can be overridden in tests to simulate user input without an interactive terminal.
-var promptConfirmFunc = func(label string) {
+var promptConfirmFunc = func(label string) bool {
 	p := promptui.Prompt{
 		Label:     label,
 		IsConfirm: true,
@@ -28,9 +28,11 @@ var promptConfirmFunc = func(label string) {
 
 	var response string
 
-	for response != "y" {
+	for response != "y" && response != "n" {
 		response, _ = p.Run()
 	}
+
+	return response == "y"
 }
 
 // OpenClosedIndex permit to open index that are closed
@@ -110,7 +112,9 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 
 	fn := func(ctx context.Context, indexName string) error {
 		if currentOpenIndex == 0 {
-			promptConfirmFunc(fmt.Sprintf("Continue with the next %d indexes", maxNumberIndexes))
+			if !promptConfirmFunc(fmt.Sprintf("Continue with the next %d indexes", maxNumberIndexes)) {
+				return nil
+			}
 
 			if err := cleanMetadataExploreWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, true, os); err != nil {
 				return errors.Wrap(err, "error to clean metadata")
@@ -135,7 +139,9 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 	}
 
 	// ask user to continue by press continue
-	promptConfirmFunc("Close all indexes")
+	for !promptConfirmFunc("Close all indexes") {
+		continue
+	}
 
 	return nil
 }
