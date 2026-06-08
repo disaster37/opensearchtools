@@ -54,6 +54,7 @@ func CleanMetata(c *cli.Context) error {
 	if c.Bool("all") {
 		user = ""
 	}
+	
 
 	return cleanMetadataExportWithAutoOpenIndex(c.Context, user, "", os)
 }

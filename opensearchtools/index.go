@@ -3,7 +3,6 @@ package opensearchtools
 import (
 	"context"
 	"fmt"
-	"os"
 	stdos "os"
 	"os/signal"
 	"strconv"
@@ -19,6 +18,10 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// errStopIteration is a sentinel error used to signal forEachIndexInDateRange
+// to stop iteration early when the user declines to continue.
+var errStopIteration = errors.New("stop iteration")
+
 // promptConfirmFunc is the function used to prompt the user for confirmation.
 // It can be overridden in tests to simulate user input without an interactive terminal.
 var promptConfirmFunc = func(label string) bool {
@@ -29,7 +32,7 @@ var promptConfirmFunc = func(label string) bool {
 
 	var response string
 
-	for response != "y" && response != "n" {
+	for response != "y" && response != "n" && response != "N" {
 		response, _ = p.Run()
 	}
 
@@ -114,7 +117,7 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 	fn := func(ctx context.Context, indexName string) error {
 		if currentOpenIndex == 0 {
 			if !promptConfirmFunc(fmt.Sprintf("Continue with the next %d indexes", maxNumberIndexes)) {
-				os.Exit(0)
+				return errStopIteration
 			}
 
 			if err := cleanMetadataExploreWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, true, osClient); err != nil {
@@ -165,6 +168,17 @@ func forEachIndexInDateRange(ctx context.Context, os opensearch.Client, datastre
 		logrus.Debugf("Process data stream index %s", datastream.Name)
 		isFoundStartingIndex := false
 
+		callFn := func(ctx context.Context, indexName string) error {
+			logrus.Infof("Process index %s", indexName)
+			if err := fn(ctx, indexName); err != nil {
+				if errors.Is(err, errStopIteration) {
+					return nil
+				}
+				return err
+			}
+			return nil
+		}
+
 		for i, indice := range datastream.Indices {
 			logrus.Debugf("Check index %s", indice.IndexName)
 
@@ -189,8 +203,7 @@ func forEachIndexInDateRange(ctx context.Context, os opensearch.Client, datastre
 			if !isFoundStartingIndex && creationDate.After(fromDateTime) {
 				if i > 0 {
 					logrus.Debugf("Found starting index %s", datastream.Indices[i-1].IndexName)
-					logrus.Infof("Process index %s", datastream.Indices[i-1].IndexName)
-					if err := fn(ctx, datastream.Indices[i-1].IndexName); err != nil {
+					if err := callFn(ctx, datastream.Indices[i-1].IndexName); err != nil {
 						return err
 					}
 				} else {
@@ -200,16 +213,14 @@ func forEachIndexInDateRange(ctx context.Context, os opensearch.Client, datastre
 			}
 
 			if isFoundStartingIndex && creationDate.Before(toDateTime) {
-				logrus.Infof("Process index %s", indice.IndexName)
-				if err := fn(ctx, indice.IndexName); err != nil {
+				if err := callFn(ctx, indice.IndexName); err != nil {
 					return err
 				}
 			}
 
 			if isFoundStartingIndex && creationDate.After(toDateTime) {
 				logrus.Debugf("Found ending index %s", indice.IndexName)
-				logrus.Infof("Process index %s", indice.IndexName)
-				if err := fn(ctx, indice.IndexName); err != nil {
+				if err := callFn(ctx, indice.IndexName); err != nil {
 					return err
 				}
 				break
