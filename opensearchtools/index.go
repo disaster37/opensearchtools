@@ -3,6 +3,7 @@ package opensearchtools
 import (
 	"context"
 	"fmt"
+	"os"
 	stdos "os"
 	"os/signal"
 	"strconv"
@@ -46,7 +47,7 @@ func OpenClosedIndex(c *cli.Context) error {
 	return openClosedIndex(c.Context, c.String("from"), c.String("to"), c.String("index"), c.Int("max-number-indexes"), os)
 }
 
-func openClosedIndex(ctx context.Context, from string, to string, index string, maxNumberIndexes int, os opensearch.Client) (err error) {
+func openClosedIndex(ctx context.Context, from string, to string, index string, maxNumberIndexes int, osClient opensearch.Client) (err error) {
 	logrus.Debugf("From: %s", from)
 	logrus.Debugf("To: %s", to)
 	logrus.Debugf("Index: %s", index)
@@ -65,12 +66,12 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 	toDateTime := toDateExpr.Time()
 
 	// Create metadata index
-	if err = createMetadataindexIfNotExist(ctx, os); err != nil {
+	if err = createMetadataindexIfNotExist(ctx, osClient); err != nil {
 		return err
 	}
 
 	// Get current user
-	authResponse, err := os.Security().AuthInfo(ctx)
+	authResponse, err := osClient.Security().AuthInfo(ctx)
 	if err != nil {
 		return errors.Wrap(err, "error to get current user")
 	}
@@ -82,13 +83,13 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 		SessionId: uuid.New().String(),
 		Indexes:   []string{},
 	}
-	if err = createMetdata(ctx, metadata, os); err != nil {
+	if err = createMetdata(ctx, metadata, osClient); err != nil {
 		return errors.Wrap(err, "error to create metadata document")
 	}
 
 	defer func() {
 		// Delete metadata document
-		if err := cleanMetadataExploreWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, false, os); err != nil {
+		if err := cleanMetadataExploreWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, false, osClient); err != nil {
 			logrus.Errorf("error to delete metadata document %s: %v", metadata.Id, err)
 		}
 	}()
@@ -99,7 +100,7 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 	go func() {
 		<-sigCh
 		logrus.Warn("Received termination signal, cleaning up...")
-		if cleanErr := cleanMetadataExploreWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, false, os); cleanErr != nil {
+		if cleanErr := cleanMetadataExploreWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, false, osClient); cleanErr != nil {
 			logrus.Errorf("Error during cleanup: %v", cleanErr)
 		}
 		stdos.Exit(1)
@@ -113,10 +114,10 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 	fn := func(ctx context.Context, indexName string) error {
 		if currentOpenIndex == 0 {
 			if !promptConfirmFunc(fmt.Sprintf("Continue with the next %d indexes", maxNumberIndexes)) {
-				return nil
+				os.Exit(0)
 			}
 
-			if err := cleanMetadataExploreWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, true, os); err != nil {
+			if err := cleanMetadataExploreWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, true, osClient); err != nil {
 				return errors.Wrap(err, "error to clean metadata")
 			}
 
@@ -127,7 +128,7 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 			currentOpenIndex = maxNumberIndexes
 		}
 
-		isOpenIndex, err := lockIndex(ctx, indexName, metadata, os)
+		isOpenIndex, err := lockIndex(ctx, indexName, metadata, osClient)
 		if err != nil {
 			return err
 		}
@@ -138,7 +139,7 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 		return nil
 	}
 
-	if err := forEachIndexInDateRange(ctx, os, index, fromDateTime, toDateTime, fn); err != nil {
+	if err := forEachIndexInDateRange(ctx, osClient, index, fromDateTime, toDateTime, fn); err != nil {
 		return err
 	}
 
