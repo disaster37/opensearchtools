@@ -16,9 +16,8 @@ func (s *ESTestSuite) TestOpenClosedIndex() {
 	defer func() { promptConfirmFunc = origPrompt }()
 
 	var promptCalls []string
-	promptConfirmFunc = func(label string) error {
+	promptConfirmFunc = func(label string) {
 		promptCalls = append(promptCalls, label)
-		return nil
 	}
 
 	// Delete datastream index

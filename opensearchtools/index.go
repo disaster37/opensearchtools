@@ -20,7 +20,7 @@ import (
 
 // promptConfirmFunc is the function used to prompt the user for confirmation.
 // It can be overridden in tests to simulate user input without an interactive terminal.
-var promptConfirmFunc = func(label string) (err error) {
+var promptConfirmFunc = func(label string) {
 	p := promptui.Prompt{
 		Label:     label,
 		IsConfirm: true,
@@ -29,13 +29,8 @@ var promptConfirmFunc = func(label string) (err error) {
 	var response string
 
 	for response != "y" {
-		response, err = p.Run()
-		if err != nil {
-			return err
-		}
+		response, _ = p.Run()
 	}
-
-	return nil
 }
 
 // OpenClosedIndex permit to open index that are closed
@@ -115,9 +110,7 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 
 	fn := func(ctx context.Context, indexName string) error {
 		if currentOpenIndex == 0 {
-			if err := promptConfirmFunc(fmt.Sprintf("Continue with the next %d indexes", maxNumberIndexes)); err != nil {
-				return errors.Wrap(err, "error to prompt user")
-			}
+			promptConfirmFunc(fmt.Sprintf("Continue with the next %d indexes", maxNumberIndexes))
 
 			if err := cleanMetadataExploreWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, true, os); err != nil {
 				return errors.Wrap(err, "error to clean metadata")
@@ -142,9 +135,7 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 	}
 
 	// ask user to continue by press continue
-	if err := promptConfirmFunc("Close all indexes ?"); err != nil {
-		return errors.Wrap(err, "error to prompt user")
-	}
+	promptConfirmFunc("Close all indexes")
 
 	return nil
 }
