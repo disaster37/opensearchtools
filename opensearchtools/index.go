@@ -20,13 +20,22 @@ import (
 
 // promptConfirmFunc is the function used to prompt the user for confirmation.
 // It can be overridden in tests to simulate user input without an interactive terminal.
-var promptConfirmFunc = func(label string) error {
+var promptConfirmFunc = func(label string) (err error) {
 	p := promptui.Prompt{
 		Label:     label,
 		IsConfirm: true,
 	}
-	_, err := p.Run()
-	return err
+
+	var response string
+
+	for response != "y" {
+		response, err = p.Run()
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // OpenClosedIndex permit to open index that are closed
