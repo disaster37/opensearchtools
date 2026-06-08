@@ -120,6 +120,10 @@ func openClosedIndex(ctx context.Context, from string, to string, index string, 
 				return errors.Wrap(err, "error to clean metadata")
 			}
 
+			// Reset local metadata Indexes to avoid polluting the OpenSearch
+			// document with stale entries from previous batches.
+			metadata.Indexes = []string{}
+
 			currentOpenIndex = maxNumberIndexes
 		}
 
