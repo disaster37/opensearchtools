@@ -2,6 +2,7 @@ package opensearchtools
 
 import (
 	"context"
+	stdErrors "errors"
 	"fmt"
 	stdos "os"
 	"os/signal"
@@ -170,13 +171,7 @@ func forEachIndexInDateRange(ctx context.Context, os opensearch.Client, datastre
 
 		callFn := func(ctx context.Context, indexName string) error {
 			logrus.Infof("Process index %s", indexName)
-			if err := fn(ctx, indexName); err != nil {
-				if errors.Is(err, errStopIteration) {
-					return nil
-				}
-				return err
-			}
-			return nil
+			return fn(ctx, indexName)
 		}
 
 		for i, indice := range datastream.Indices {
@@ -204,6 +199,9 @@ func forEachIndexInDateRange(ctx context.Context, os opensearch.Client, datastre
 				if i > 0 {
 					logrus.Debugf("Found starting index %s", datastream.Indices[i-1].IndexName)
 					if err := callFn(ctx, datastream.Indices[i-1].IndexName); err != nil {
+						if stdErrors.Is(err, errStopIteration) {
+							return nil
+						}
 						return err
 					}
 				} else {
@@ -214,6 +212,9 @@ func forEachIndexInDateRange(ctx context.Context, os opensearch.Client, datastre
 
 			if isFoundStartingIndex && creationDate.Before(toDateTime) {
 				if err := callFn(ctx, indice.IndexName); err != nil {
+					if stdErrors.Is(err, errStopIteration) {
+						return nil
+					}
 					return err
 				}
 			}
@@ -221,6 +222,9 @@ func forEachIndexInDateRange(ctx context.Context, os opensearch.Client, datastre
 			if isFoundStartingIndex && creationDate.After(toDateTime) {
 				logrus.Debugf("Found ending index %s", indice.IndexName)
 				if err := callFn(ctx, indice.IndexName); err != nil {
+					if stdErrors.Is(err, errStopIteration) {
+						return nil
+					}
 					return err
 				}
 				break
