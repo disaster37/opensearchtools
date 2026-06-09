@@ -35,10 +35,9 @@ func run(args []string) error {
 			Usage: "Load configuration from `FILE`",
 		},
 		altsrc.NewStringFlag(&cli.StringFlag{
-			Name:     "url",
-			Usage:    "The opensearch URLs",
-			EnvVars:  []string{"OPENSEARCH_URLS"},
-			Required: true,
+			Name:    "url",
+			Usage:   "The opensearch URLs",
+			EnvVars: []string{"OPENSEARCH_URLS"},
 		}),
 		altsrc.NewStringFlag(&cli.StringFlag{
 			Name:    "user",
@@ -50,14 +49,14 @@ func run(args []string) error {
 			Usage:   "The password",
 			EnvVars: []string{"OPENSEARCH_PASSWORD"},
 		}),
-		&cli.BoolFlag{
+		altsrc.NewBoolFlag(&cli.BoolFlag{
 			Name:  "self-signed-certificate",
 			Usage: "Disable the TLS certificate check",
-		},
-		&cli.BoolFlag{
+		}),
+		altsrc.NewBoolFlag(&cli.BoolFlag{
 			Name:  "debug",
 			Usage: "Display debug output",
-		},
+		}),
 	}
 	app.Commands = []*cli.Command{
 		{
@@ -227,7 +226,13 @@ func run(args []string) error {
 
 		if c.String("config") != "" {
 			before := altsrc.InitInputSourceWithContext(app.Flags, altsrc.NewYamlSourceFromFlagFunc("config"))
-			return before(c)
+			if err := before(c); err != nil {
+				return err
+			}
+		}
+
+		if c.String("url") == "" {
+			return fmt.Errorf("Required flag \"url\" not set. Use --url, OPENSEARCH_URLS env var, or set in config file via --config")
 		}
 		return nil
 	}
