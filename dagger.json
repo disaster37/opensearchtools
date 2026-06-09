@@ -21,6 +21,11 @@
       "pin": "98e1f485801e91e802da616dc0211ef3419e3794"
     },
     {
+      "name": "goreleaser",
+      "source": "github.com/act3-ai/dagger/goreleaser@goreleaser/v0.1.1",
+      "pin": "1edbeb2d1eea67b84a9bc8921f3760db7cdefdf2"
+    },
+    {
       "name": "image",
       "source": "github.com/disaster37/dagger-library-go/image@2.0.0",
       "pin": "98e1f485801e91e802da616dc0211ef3419e3794"

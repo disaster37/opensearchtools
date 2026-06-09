@@ -155,6 +155,17 @@ func (h *Opensearchtools) Ci(
 		return nil, errors.Wrap(err, "Error when build and push Docker image")
 	}
 
+	// Goreleaser release (binary artifacts to GitHub Release)
+	if ci && isTag {
+		if gitToken == nil {
+			return nil, errors.New("You need to provide git token for goreleaser release")
+		}
+		stdout, err = h.GoreleaserRelease(ctx, gitToken)
+		if err != nil {
+			return nil, errors.Wrapf(err, "Error when goreleaser release: %s", stdout)
+		}
+	}
+
 	return dir, nil
 }
 
@@ -321,4 +332,24 @@ func (h *Opensearchtools) BuildImage(
 	}
 
 	return nil
+}
+
+// GoreleaserRelease compile les binaires et les publie sur la Release GitHub
+// via goreleaser. Le token GitHub est requis pour l'authentification.
+func (h *Opensearchtools) GoreleaserRelease(
+	ctx context.Context,
+	// GitHub token for release creation and asset upload
+	// +required
+	gitToken *dagger.Secret,
+) (string, error) {
+	return dag.Goreleaser(
+		h.Src,
+		dagger.GoreleaserOpts{
+			Config: h.Src.File(".goreleaser.yml"),
+		},
+	).
+		WithSecretVariable("GITHUB_TOKEN", gitToken).
+		Release().
+		WithClean().
+		Run(ctx)
 }
