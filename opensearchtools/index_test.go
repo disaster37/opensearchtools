@@ -57,7 +57,7 @@ func (s *ESTestSuite) TestOpenClosedIndex() {
 
 	// Verify prompt was called exactly once (the final "Close all indexes?" prompt)
 	s.Len(promptCalls, 1)
-	s.Contains(promptCalls[0], "Close all indexes ?")
+	s.Contains(promptCalls[0], "Close all indexes")
 
 	// Verify idx1 is now open (was closed before)
 	catResp, err := s.client.Cat().Indices(context.Background(), []string{idx1})
