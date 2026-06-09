@@ -2,59 +2,54 @@ package opensearchtools
 
 import (
 	"context"
-	"crypto/tls"
-	"net/http"
 	"os"
+	"time"
 
-	"github.com/disaster37/opensearch/v3"
-	"github.com/disaster37/opensearch/v3/config"
+	"github.com/disaster37/opensearch/v4"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
-	"k8s.io/utils/ptr"
 )
 
-func manageOpensearchGlobalParameters(c *cli.Context) (*opensearch.Client, error) {
-	log.Debug("Opensearch URL: ", c.String("urls"))
+func manageOpensearchGlobalParameters(c *cli.Context) (opensearch.Client, error) {
+	log.Debug("Opensearch URL: ", c.String("url"))
 	log.Debug("Opensearch user: ", c.String("user"))
 	log.Debug("Opensearch password: XXX")
 	log.Debug("Disable verify SSL: ", c.Bool("self-signed-certificate"))
 
 	// Init opensearch client
-	cfg := &config.Config{
-		URLs:        c.StringSlice("urls"),
-		Username:    c.String("user"),
-		Password:    c.String("password"),
-		Sniff:       ptr.To[bool](false),
-		Healthcheck: ptr.To[bool](false),
+	cfg := &opensearch.Config{
+		URL:              c.String("url"),
+		Username:         c.String("user"),
+		Password:         c.String("password"),
+		RetryCount:       10,
+		RetryWaitTime:    1 * time.Second,
+		RetryMaxWaitTime: 10 * time.Second,
 	}
 	if c.Bool("self-signed-certificate") {
-		cfg.Transport = &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		}
+		cfg.TLSSkipVerify = true
 	}
 
-	es, err := opensearch.NewClientFromConfig(cfg)
+	os, err := opensearch.New(cfg, log.NewEntry(log.StandardLogger()))
 	if err != nil {
 		return nil, err
 	}
 
-	return es, nil
+	return os, nil
 }
 
+// CheckConnexion check if the connexion to opensearch is OK
 func CheckConnexion(c *cli.Context) error {
-	es, err := manageOpensearchGlobalParameters(c)
+	osClient, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
 	}
 
-	return checkConnexion(es)
+	return checkConnexion(c.Context, osClient)
 }
 
-func checkConnexion(es *opensearch.Client) error {
-	_, err := es.ClusterHealth().Do(context.Background())
+func checkConnexion(ctx context.Context, os opensearch.Client) error {
+	_, err := os.Cluster().Health(ctx, nil)
 	if err != nil {
 		return errors.Errorf("Error when check Opensearch connexion: %s", err.Error())
 	}
@@ -62,14 +57,15 @@ func checkConnexion(es *opensearch.Client) error {
 	return nil
 }
 
+// CheckClusterStatus check the status of the cluster
 func CheckClusterStatus(c *cli.Context) error {
-	es, err := manageOpensearchGlobalParameters(c)
+	osClient, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		log.Errorf("Cluster Unknown:\n%s", err.Error())
 		os.Exit(3)
 	}
 
-	status, err := checkClusterStatus(es)
+	status, err := checkClusterStatus(c.Context, osClient)
 	if err != nil {
 		log.Errorf("Cluster Unknown:\n%s", err.Error())
 		os.Exit(3)
@@ -90,8 +86,8 @@ func CheckClusterStatus(c *cli.Context) error {
 	return nil
 }
 
-func checkClusterStatus(es *opensearch.Client) (string, error) {
-	res, err := es.ClusterHealth().Do(context.Background())
+func checkClusterStatus(ctx context.Context, os opensearch.Client) (string, error) {
+	res, err := os.Cluster().Health(ctx, nil)
 	if err != nil {
 		return "", err
 	}
@@ -99,13 +95,14 @@ func checkClusterStatus(es *opensearch.Client) (string, error) {
 	return res.Status, nil
 }
 
+// ClusterEnableRoutingAllocation enable routing allocation
 func ClusterEnableRoutingAllocation(c *cli.Context) error {
-	es, err := manageOpensearchGlobalParameters(c)
+	os, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
 	}
 
-	err = enableRoutingAllocation(es)
+	err = enableRoutingAllocation(c.Context, os)
 	if err != nil {
 		return err
 	}
@@ -115,13 +112,14 @@ func ClusterEnableRoutingAllocation(c *cli.Context) error {
 	return nil
 }
 
+// ClusterDisableRoutingAllocation disable routing allocation
 func ClusterDisableRoutingAllocation(c *cli.Context) error {
-	es, err := manageOpensearchGlobalParameters(c)
+	os, err := manageOpensearchGlobalParameters(c)
 	if err != nil {
 		return err
 	}
 
-	err = disableRoutingAllocation(es)
+	err = disableRoutingAllocation(c.Context, os)
 	if err != nil {
 		return err
 	}
@@ -131,34 +129,34 @@ func ClusterDisableRoutingAllocation(c *cli.Context) error {
 	return nil
 }
 
-func enableRoutingAllocation(es *opensearch.Client) error {
+func enableRoutingAllocation(ctx context.Context, os opensearch.Client) error {
 	settings := map[string]interface{}{
 		"persistent": map[string]interface{}{
 			"cluster.routing.allocation.enable": "all",
 		},
 	}
 
-	err := putClusterSettings(es, settings)
+	err := putClusterSettings(ctx, os, settings)
 
 	return err
 }
 
-func disableRoutingAllocation(es *opensearch.Client) error {
+func disableRoutingAllocation(ctx context.Context, os opensearch.Client) error {
 	settings := map[string]interface{}{
 		"persistent": map[string]interface{}{
 			"cluster.routing.allocation.enable": "primaries",
 		},
 	}
 
-	err := putClusterSettings(es, settings)
+	err := putClusterSettings(ctx, os, settings)
 
 	return err
 }
 
-func putClusterSettings(es *opensearch.Client, settings map[string]interface{}) error {
+func putClusterSettings(ctx context.Context, os opensearch.Client, settings map[string]interface{}) error {
 	log.Debugf("Settings: %+v", settings)
 
-	if _, err := es.ClusterPutSetting().Body(settings).Do(context.Background()); err != nil {
+	if _, err := os.Cluster().PutSettings(ctx, settings); err != nil {
 		return errors.Wrapf(err, "Error when set Opensearch cluster setting")
 	}
 

@@ -110,7 +110,12 @@ func (h *Opensearchtools) Ci(
 	dir = h.Format(ctx)
 
 	// Test code
-	reportFile := h.Test(ctx)
+	reportFile, err := h.Test(ctx, false, false, "", "", "")
+	if err != nil {
+		return nil, errors.Wrapf(err, "Error when test project: %s", stdout)
+	}
+
+	// Generate coverage report
 	dir = dir.WithFile("coverage.out", reportFile)
 
 	if ci {
@@ -167,12 +172,10 @@ func (h *Opensearchtools) Format(
 	return h.GolangModule.Format()
 }
 
-// Test permit to run tests
-func (h *Opensearchtools) Test(
+func (h *Opensearchtools) Opensearch(
 	ctx context.Context,
-) *dagger.File {
-	// Run Opensearch
-	opensearchService := dag.Container().
+) (*dagger.Service, error) {
+	os := dag.Container().
 		From(fmt.Sprintf("opensearchproject/opensearch:%s", OpensearchVersion)).
 		WithEnvVariable("cluster.name", "test").
 		WithEnvVariable("node.name", "opensearch-node1").
@@ -187,16 +190,61 @@ func (h *Opensearchtools) Test(
 		WithExposedPort(9200).
 		AsService()
 
-	return h.GolangModule.Container().
-		WithServiceBinding("opensearch.svc", opensearchService).
+	_, err := h.GolangModule.Container().
+		WithServiceBinding("opensearch.svc", os).
+		WithEnvVariable("OPENSEARCH_USERNAME", username).
+		WithEnvVariable("OPENSEARCH_PASSWORD", password).
 		WithExec(helper.ForgeScript(`
 set -e
 sleep 10
-curl --fail -XGET -k -u %s:%s "https://opensearch.svc:9200/_cluster/health?wait_for_status=yellow&timeout=500s"
-curl --fail -u %s:%s -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/logs/_bulk?pretty --data-binary @fixtures/logs/bulk.ndjson
-OPENSEARCH_USERNAME=%s OPENSEARCH_PASSWORD=%s go test ./... -v -count 1 -parallel 1 -race -coverprofile=coverage.out -covermode=atomic -timeout 120m
-		`, username, password, username, password, username, password)).
-		File("coverage.out")
+curl --fail -XGET -k -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD "https://opensearch.svc:9200/_cluster/health?wait_for_status=yellow&timeout=500s"
+curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/logs/_bulk?refresh=wait_for --data-binary @fixtures/logs/bulk.ndjson
+curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_index_template/ds -d @fixtures/logs/index_template.json
+curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_data_stream/test
+curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_data_stream/test-metadata
+curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/test/_bulk?refresh=wait_for --data-binary @fixtures/logs/bulk.ndjson
+sleep 10
+`)).Sync(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return os, nil
+}
+
+// Test permit to run tests
+func (h *Opensearchtools) Test(
+	ctx context.Context,
+	//+optional
+	short bool,
+	//+optional
+	shuffle bool,
+	//+optional
+	run string,
+	//+optional
+	skip string,
+	//+optional
+	path string,
+) (*dagger.File, error) {
+	// Run Opensearch
+	opensearchService, err := h.Opensearch(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	goContainer := h.GolangModule.Container().
+		WithServiceBinding("opensearch.svc", opensearchService).
+		WithEnvVariable("OPENSEARCH_USERNAME", username).
+		WithEnvVariable("OPENSEARCH_PASSWORD", password)
+
+	return dag.Golang(h.Src, dagger.GolangOpts{Base: goContainer}).Test(dagger.GolangTestOpts{
+		Short:         short,
+		Shuffle:       shuffle,
+		Run:           run,
+		Skip:          skip,
+		WithGotestsum: true,
+		Path:          path,
+	}), nil
 }
 
 // Build permit to build project

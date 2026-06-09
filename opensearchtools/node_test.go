@@ -1,0 +1,31 @@
+package opensearchtools
+
+import (
+	"context"
+
+	"github.com/stretchr/testify/assert"
+)
+
+func (s *ESTestSuite) TestCheckExpectedNodes() {
+	// When true
+	isExpectedNode, err := checkExpectedNumberNodes(context.Background(), s.client, 1)
+	assert.NoError(s.T(), err)
+	assert.True(s.T(), isExpectedNode)
+
+	// When false
+	isExpectedNode, err = checkExpectedNumberNodes(context.Background(), s.client, 10)
+	assert.NoError(s.T(), err)
+	assert.False(s.T(), isExpectedNode)
+}
+
+func (s *ESTestSuite) TestCheckNodeOnlie() {
+	// When true
+	isOnline, err := checkNodeOnline(context.Background(), s.client, "opensearch-node1", []string{"node_name"})
+	assert.NoError(s.T(), err)
+	assert.True(s.T(), isOnline)
+
+	// When false
+	isOnline, err = checkNodeOnline(context.Background(), s.client, "fake", []string{"node_name"})
+	assert.NoError(s.T(), err)
+	assert.False(s.T(), isOnline)
+}

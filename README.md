@@ -109,8 +109,85 @@ __parameters__:
   - **separator**: The separator to concatain field when extract multi fields. Default to `|`
   - **split-file-field**: The field to use to split data into multi files. Default to `host.name`
   - **path**: The root path to create extracted files. Default to `.`
+  - **open-index**: If you want to export data from index that is closed.
 
 Sample of command:
 ```bash
 opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin --password changeme --self-signed-certificate export-data --from now-12h --to now --date-field "@timestamp" --index "logs-*" --query "labels.application: app1 AND labels.environment: staging" --fields log.original --split-file-field host.name --path /tmp
 ```
+
+https://127.0.0.1:9200/.opensearchtools/_search
+https://127.0.0.1:9200/.opensearchtools/_search
+
+
+curl -k -u admin:vLPeJYa8.3RqtZCcAK6jNz  -H 'Content-Type: application/json' -XPOST https://127.0.0.1:9200/.opensearchtools/_search -d '{"query":{"term":{"indexes":".ds-tet-metadata-000001"}}}
+
+curl -k -u admin:vLPeJYa8.3RqtZCcAK6jNz  -H 'Content-Type: application/json' -XPOST https://127.0.0.1:9200/.opensearchtools/_search -d '{"query":{"term":{"indexes":".ds-test-metadata-000001"}}}
+
+## Minimum OpenSearch role
+
+Below is the minimum custom OpenSearch role required to use the tooling. It grants the necessary cluster and index permissions for `OpenClosedIndex`, `ExportDataToFiles` (with and without `--open-index`), and metadata cleanup.
+
+### Cluster permissions
+
+| Action | Purpose |
+|--------|---------|
+| `cluster:admin/opendistro_security/auth/info` | Get current username for metadata tracking |
+
+### Index permissions on `.opensearchtools`
+
+| Action | Purpose |
+|--------|---------|
+| `indices:admin/create` | Create the `.opensearchtools` metadata index |
+| `indices:admin/exists` | Check if `.opensearchtools` already exists |
+| `indices:data/write/index` | Write/update metadata documents (session tracking, lock/unlock) |
+| `indices:data/read/search` | Search metadata documents (cleanup, lock checks) |
+| `indices:data/write/delete` | Delete metadata documents after cleanup |
+
+### Index permissions on target data stream / indices
+
+These apply to the data streams and backing indices you are exporting from or opening.
+
+| Action | Purpose |
+|--------|---------|
+| `indices:admin/data_stream/get` | List backing indices of a data stream |
+| `indices:admin/get` | Read index settings (creation date) |
+| `indices:monitor/settings` | Check index state via cat indices API |
+| `indices:admin/open` | Open a closed index (`--open-index` / `open-index` command) |
+| `indices:admin/close` | Re-close an index after processing (cleanup) |
+| `indices:data/read/search` | Search documents and manage PIT (export-data) |
+
+### Minimal role definition (JSON)
+
+```json
+{
+  "cluster_permissions": [
+    "cluster:admin/opendistro_security/auth/info"
+  ],
+  "index_permissions": [
+    {
+      "index_patterns": [".opensearchtools"],
+      "allowed_actions": [
+        "indices:admin/create",
+        "indices:admin/exists",
+        "indices:data/write/index",
+        "indices:data/write/delete",
+        "indices:data/read/search"
+      ]
+    },
+    {
+      "index_patterns": ["logs-*", "<your-target-datastream-pattern>"],
+      "allowed_actions": [
+        "indices:admin/data_stream/get",
+        "indices:admin/get",
+        "indices:monitor/settings",
+        "indices:admin/open",
+        "indices:admin/close",
+        "indices:data/read/search"
+      ]
+    }
+  ]
+}
+```
+
+Adjust the second `index_patterns` to match the actual data streams or indices you operate on.
