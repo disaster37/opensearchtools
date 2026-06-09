@@ -232,7 +232,7 @@ func run(args []string) error {
 		}
 
 		if c.String("url") == "" {
-			return fmt.Errorf("Required flag \"url\" not set. Use --url, OPENSEARCH_URLS env var, or set in config file via --config")
+			return fmt.Errorf("required flag \"url\" not set. Use --url, OPENSEARCH_URLS env var, or set in config file via --config")
 		}
 		return nil
 	}
