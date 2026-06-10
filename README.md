@@ -143,6 +143,9 @@ Below is the minimum custom OpenSearch role required to use the tooling. It gran
 | `indices:data/write/index` | Write/update metadata documents (session tracking, lock/unlock) |
 | `indices:data/read/search` | Search metadata documents (cleanup, lock checks) |
 | `indices:data/write/delete` | Delete metadata documents after cleanup |
+| `indices:admin/get` | Read index settings |
+| `indices:data/write/bulk*` | Bulk operations for metadata (cleanup) |
+| `indices:data/write/update` | Update metadata documents (lock/unlock) |
 
 ### Index permissions on target data stream / indices
 
@@ -162,7 +165,8 @@ These apply to the data streams and backing indices you are exporting from or op
 ```json
 {
   "cluster_permissions": [
-    "cluster:admin/opendistro_security/auth/info"
+    "cluster:admin/opendistro_security/auth/info",
+    "indices:data/write/bulk"
   ],
   "index_permissions": [
     {
@@ -172,7 +176,10 @@ These apply to the data streams and backing indices you are exporting from or op
         "indices:admin/exists",
         "indices:data/write/index",
         "indices:data/write/delete",
-        "indices:data/read/search"
+        "indices:data/read/search",
+        "indices:admin/get",
+        "indices:data/write/bulk*",
+        "indices:data/write/update"
       ]
     },
     {
@@ -183,6 +190,7 @@ These apply to the data streams and backing indices you are exporting from or op
         "indices:monitor/settings",
         "indices:admin/open",
         "indices:admin/close",
+        "indices:admin/close*"
         "indices:data/read/search"
       ]
     }
