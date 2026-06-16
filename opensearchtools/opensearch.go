@@ -25,6 +25,12 @@ func manageOpensearchGlobalParameters(c *cli.Context) (opensearch.Client, error)
 		RetryCount:       10,
 		RetryWaitTime:    1 * time.Second,
 		RetryMaxWaitTime: 10 * time.Second,
+		// Force HTTP/1.1: the export paginates sequentially, so HTTP/2
+		// multiplexing brings no benefit. With HTTP/2 every request shares a
+		// single TCP connection, and an intermediary (LB/ingress front proxy)
+		// resetting it kills all in-flight streams at once, surfacing as
+		// "connection reset by peer". HTTP/1.1 isolates each request.
+		DisableHTTP2: true,
 	}
 	if c.Bool("self-signed-certificate") {
 		cfg.TLSSkipVerify = true
