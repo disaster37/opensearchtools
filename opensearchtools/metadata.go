@@ -3,6 +3,7 @@ package opensearchtools
 import (
 	"context"
 	_ "embed"
+	"time"
 
 	gojson "github.com/goccy/go-json"
 
@@ -152,9 +153,58 @@ func lockIndex(ctx context.Context, index string, metadata *Metadata, os opensea
 			return false, errors.Wrapf(err, "error to open index %s", index)
 		}
 		logrus.Infof("Open index %s", index)
+
+		// Opening an index is only acknowledged once the request is accepted;
+		// the shards still need to recover before searches can succeed.
+		// Wait for the index primaries to become active to avoid
+		// "all shards failed" errors on subsequent searches.
+		if err := waitForIndexReady(ctx, index, os); err != nil {
+			return false, errors.Wrapf(err, "error waiting for index %s to be ready", index)
+		}
 	}
 
 	return opennedIndex, nil
+}
+
+// waitForIndexReady polls the cluster health for the given index until its
+// primary shards are active (status yellow or green) and no shards are still
+// initializing. It returns an error if the index is not ready before the
+// timeout expires or the context is cancelled.
+func waitForIndexReady(ctx context.Context, index string, os opensearch.Client) error {
+	const (
+		timeout      = 5 * time.Minute
+		pollInterval = 2 * time.Second
+	)
+
+	deadline := time.Now().Add(timeout)
+
+	for {
+		health, err := os.Cluster().Health(ctx, []string{index})
+		if err != nil {
+			return errors.Wrapf(err, "error to get health of index %s", index)
+		}
+
+		// The health request is scoped to this single index, so the
+		// top-level fields reflect that index. We avoid health.Indices here
+		// because the per-index map is only populated when level=indices,
+		// which the client does not request by default.
+		if health.Status != "red" && health.InitializingShards == 0 {
+			logrus.Debugf("Index %s is ready (status: %s)", index, health.Status)
+			return nil
+		}
+
+		logrus.Debugf("Index %s not ready yet (status: %s, initializing shards: %d)", index, health.Status, health.InitializingShards)
+
+		if time.Now().After(deadline) {
+			return errors.Errorf("index %s is not ready after %s", index, timeout)
+		}
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(pollInterval):
+		}
+	}
 }
 
 // unlockIndex permit to close index if it's not used by another session
