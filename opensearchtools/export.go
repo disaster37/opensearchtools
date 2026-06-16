@@ -1,11 +1,13 @@
 package opensearchtools
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	stdos "os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/disaster37/opensearch/v4"
@@ -91,6 +93,18 @@ func exportDataToFiles(ctx context.Context, fromDate string, toDate string, date
 
 	// Search on all index, without needed to work index by index
 	if !isOpenClosedIndex {
+		// Register signal handler to flush buffered writers on Ctrl+C / kill.
+		// This branch has no metadata cleanup; flushing is the only shutdown work.
+		sigCh := make(chan stdos.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		defer signal.Stop(sigCh)
+		go func() {
+			<-sigCh
+			log.Warn("Received termination signal, flushing buffered data...")
+			flushAllWriterCaches()
+			stdos.Exit(1)
+		}()
+
 		return exportDataToFilesWithoutClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, os)
 	} else {
 		// Work index by index
@@ -98,7 +112,7 @@ func exportDataToFiles(ctx context.Context, fromDate string, toDate string, date
 	}
 }
 
-func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) error {
+func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) (err error) {
 	// Normalize query
 	query = querydsl.NormalizeLuceneQuery(query)
 
@@ -142,6 +156,18 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 	// Get records over scroll
 	firstLoop := true
 
+	// fileWriterCache keeps buffered writers open across all batches.
+	// On replicated/network storage (e.g. Longhorn), unbuffered per-line
+	// writes and reopening files on every batch are extremely costly.
+	// Buffering collapses thousands of write() syscalls per batch into a few,
+	// and keeping file handles open avoids repeated open/stat/close.
+	cache := newFileWriterCache()
+	defer func() {
+		if cerr := cache.Close(); cerr != nil && err == nil {
+			err = cerr
+		}
+	}()
+
 	log.Infof("Start search on Opensearch with index %s and search '%s", index, query)
 	for {
 		req, err := api.NewSearchRequest(reqDsl)
@@ -163,7 +189,7 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 			log.Infof("Found %d document to export", searchResult.Hits.TotalHits.Value)
 		}
 
-		if err = processExport(searchResult, fields, separator, path, splitFileColumn); err != nil {
+		if err = processExport(searchResult, fields, separator, path, splitFileColumn, cache); err != nil {
 			return err
 		}
 
@@ -221,6 +247,8 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 	go func() {
 		<-sigCh
 		log.Warn("Received termination signal, cleaning up...")
+		// Flush buffered writers before exiting so no exported data is lost.
+		flushAllWriterCaches()
 		if cleanErr := cleanMetadataExportWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, os); cleanErr != nil {
 			log.Errorf("Error during cleanup: %v", cleanErr)
 		}
@@ -257,18 +285,126 @@ func handleClosedIndex(ctx context.Context, metadata *Metadata, querySize int, f
 	return exportDataToFilesWithoutClosedIndex(ctx, querySize, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, os)
 }
 
-func processExport(searchResult *querydsl.SearchResult, fields []string, separator string, path string, splitFileColumn string) (err error) {
+// fileWriterCache holds buffered writers keyed by file path, kept open for the
+// whole export so that file handles are not reopened on every batch and writes
+// are buffered instead of issuing one write() syscall per document line.
+type fileWriterCache struct {
+	files   map[string]*stdos.File
+	writers map[string]*bufio.Writer
+}
+
+const fileWriterBufferSize = 256 * 1024
+
+// writerCacheRegistry tracks all live caches so that signal handlers can flush
+// their buffers before the process exits. Because exits go through os.Exit,
+// deferred flushes are bypassed; flushing the registry preserves buffered data.
+var (
+	writerCacheRegistryMu sync.Mutex
+	writerCacheRegistry   = make(map[*fileWriterCache]struct{})
+)
+
+func registerWriterCache(c *fileWriterCache) {
+	writerCacheRegistryMu.Lock()
+	writerCacheRegistry[c] = struct{}{}
+	writerCacheRegistryMu.Unlock()
+}
+
+func unregisterWriterCache(c *fileWriterCache) {
+	writerCacheRegistryMu.Lock()
+	delete(writerCacheRegistry, c)
+	writerCacheRegistryMu.Unlock()
+}
+
+// flushAllWriterCaches flushes buffered data of every live cache. It is meant to
+// be called from signal handlers right before os.Exit so that no buffered lines
+// are lost on interruption.
+func flushAllWriterCaches() {
+	writerCacheRegistryMu.Lock()
+	defer writerCacheRegistryMu.Unlock()
+	for c := range writerCacheRegistry {
+		c.flush()
+	}
+}
+
+func newFileWriterCache() *fileWriterCache {
+	c := &fileWriterCache{
+		files:   make(map[string]*stdos.File),
+		writers: make(map[string]*bufio.Writer),
+	}
+	registerWriterCache(c)
+	return c
+}
+
+// get returns a buffered writer for fileName, opening the underlying file on
+// first use and reusing the same handle for subsequent batches.
+func (c *fileWriterCache) get(fileName string) (*bufio.Writer, error) {
+	if w, ok := c.writers[fileName]; ok {
+		return w, nil
+	}
+
+	if _, err := stdos.Stat(fileName); stdos.IsNotExist(err) {
+		log.Infof("Create file: %s", fileName)
+	}
+	log.Debugf("Open file %s", fileName)
+
+	file, err := stdos.OpenFile(fileName, stdos.O_APPEND|stdos.O_CREATE|stdos.O_WRONLY, 0o644)
+	if err != nil {
+		log.Errorf("Error when open file: %s", err.Error())
+		return nil, err
+	}
+
+	w := bufio.NewWriterSize(file, fileWriterBufferSize)
+	c.files[fileName] = file
+	c.writers[fileName] = w
+
+	return w, nil
+}
+
+// flush flushes every buffered writer without closing the files. It is safe to
+// call from a signal handler to persist buffered data before exiting.
+func (c *fileWriterCache) flush() {
+	for name, w := range c.writers {
+		if err := w.Flush(); err != nil {
+			log.Errorf("Error when flush file %s: %s", name, err.Error())
+		}
+	}
+}
+
+// Close flushes every buffered writer and closes all open files. It returns the
+// first error encountered while still attempting to close the remaining files.
+func (c *fileWriterCache) Close() error {
+	defer unregisterWriterCache(c)
+
+	var firstErr error
+	for name, w := range c.writers {
+		if err := w.Flush(); err != nil {
+			log.Errorf("Error when flush file %s: %s", name, err.Error())
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	for name, f := range c.files {
+		if err := f.Close(); err != nil {
+			log.Errorf("Error when close file %s: %s", name, err.Error())
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
+	return firstErr
+}
+
+func processExport(searchResult *querydsl.SearchResult, fields []string, separator string, path string, splitFileColumn string, cache *fileWriterCache) (err error) {
 	log.Debugf("Process %d documents", len(searchResult.Hits.Hits))
 
 	// Loop over results
 	if len(searchResult.Hits.Hits) > 0 {
-		listFiles := make(map[string]*stdos.File, 0)
-
 		var fileName string
 
 		for _, item := range searchResult.Hits.Hits {
 
-			// Create target file to write result
+			// Determine target file to write result
 			jsonResult := gjson.ParseBytes(item.Source)
 			if jsonResult.Get(splitFileColumn).Str == "" {
 				log.Debugf("No value for field %s on document id %s", splitFileColumn, item.Id)
@@ -277,29 +413,19 @@ func processExport(searchResult *querydsl.SearchResult, fields []string, separat
 				fileName = fmt.Sprintf("%s/%s", path, jsonResult.Get(splitFileColumn))
 			}
 
-			file, ok := listFiles[fileName]
-			if !ok {
-				if _, err = stdos.Stat(fileName); stdos.IsNotExist(err) {
-					log.Infof("Create file: %s", fileName)
-				}
-				log.Debugf("Open file %s", fileName)
-				file, err = stdos.OpenFile(fileName, stdos.O_APPEND|stdos.O_CREATE|stdos.O_WRONLY, 0o644)
-				if err != nil {
-					log.Errorf("Error when open file: %s", err.Error())
-					return err
-				}
-				defer func() { _ = file.Close() }()
-
-				listFiles[fileName] = file
+			writer, err := cache.get(fileName)
+			if err != nil {
+				return err
 			}
+
 			// Extract needed columns
 			td := make([]string, 0)
 			for _, field := range fields {
 				td = append(td, jsonResult.Get(field).Str)
 			}
 
-			// Write result
-			_, err := fmt.Fprintf(file, "%s\n", strings.Join(td, separator))
+			// Write result to the buffered writer
+			_, err = fmt.Fprintf(writer, "%s\n", strings.Join(td, separator))
 			if err != nil {
 				log.Errorf("Error when write file: %s", err.Error())
 				return err
