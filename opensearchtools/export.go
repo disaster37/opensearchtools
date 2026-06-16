@@ -75,7 +75,7 @@ func exportDataToFiles(ctx context.Context, fromDate string, toDate string, date
 		return errors.New("You must provide es client")
 	}
 
-	size := 10000
+	size := 5000
 
 	log.Debugf("fromDate: %s", fromDate)
 	log.Debugf("toDate: %s", toDate)
