@@ -21,6 +21,24 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// dateAnchorLayouts lists the absolute timestamp formats accepted as the anchor
+// of a datemath expression. They mirror the ISO8601 forms go-datemath supports,
+// but are parsed with Go's strict time.Parse so impossible calendar dates such
+// as month 13 or day 00 are rejected instead of being silently rolled over.
+var dateAnchorLayouts = []string{
+	"2006",
+	"2006-01",
+	"2006-01-02",
+	"2006-01-02T15",
+	"2006-01-02T15:04",
+	"2006-01-02T15:04:05",
+	"2006-01-02T15:04:05.999999999",
+	"2006-01-02T15Z07:00",
+	"2006-01-02T15:04Z07:00",
+	"2006-01-02T15:04:05Z07:00",
+	"2006-01-02T15:04:05.999999999Z07:00",
+}
+
 // ExportDataToFiles permit to extract some datas to files
 // It return error if something wrong
 func ExportDataToFiles(c *cli.Context) error {
@@ -51,6 +69,7 @@ func ExportDataToFiles(c *cli.Context) error {
 		return errors.New("You must set --query")
 	}
 
+
 	err = exportDataToFiles(c.Context, from, to, dateField, index, query, isOpenClosedIndex, fields, separator, splitFileField, path, pitDuraction, os)
 	if err != nil {
 		return err
@@ -75,6 +94,14 @@ func exportDataToFiles(ctx context.Context, fromDate string, toDate string, date
 
 	if os == nil {
 		return errors.New("You must provide es client")
+	}
+
+	if _, err := datemath.Parse(fromDate); err != nil {
+		return errors.Wrapf(err, "error to parse date %s", fromDate)
+	}
+
+	if _, err := datemath.Parse(toDate); err != nil {
+		return errors.Wrapf(err, "error to parse date %s", toDate)
 	}
 
 	size := 5000
