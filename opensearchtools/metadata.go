@@ -149,7 +149,7 @@ func lockIndex(ctx context.Context, index string, metadata *Metadata, os opensea
 
 	// If index is closed, open it
 	if isClosed {
-		if resp, err := os.Indices().Open(ctx, index); err != nil || !resp.Acknowledged {
+		if resp, err := os.Indices().Open(ctx, index, &api.IndicesOpenParams{WaitForActiveShards: "all"}); err != nil || !resp.Acknowledged {
 			return false, errors.Wrapf(err, "error to open index %s", index)
 		}
 		logrus.Infof("Open index %s", index)
