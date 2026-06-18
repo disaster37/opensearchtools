@@ -23,7 +23,6 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-
 // ExportDataToFiles permit to extract some datas to files
 // It return error if something wrong
 func ExportDataToFiles(c *cli.Context) error {
@@ -54,7 +53,6 @@ func ExportDataToFiles(c *cli.Context) error {
 	if query == "" {
 		return errors.New("You must set --query")
 	}
-
 
 	err = exportDataToFiles(c.Context, from, to, dateField, index, query, isOpenClosedIndex, fields, separator, splitFileField, path, pitDuraction, compress, os)
 	if err != nil {
