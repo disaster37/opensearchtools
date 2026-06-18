@@ -2,10 +2,12 @@ package opensearchtools
 
 import (
 	"bufio"
+	"compress/gzip"
 	"context"
 	"fmt"
 	stdos "os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -58,6 +60,7 @@ func ExportDataToFiles(c *cli.Context) error {
 	path := c.String("path")
 	isOpenClosedIndex := c.Bool("open-index")
 	pitDuraction := c.String("pit-duration")
+	compress := c.Bool("compress")
 
 	if path == "" {
 		return errors.New("You must set --path")
@@ -70,7 +73,7 @@ func ExportDataToFiles(c *cli.Context) error {
 	}
 
 
-	err = exportDataToFiles(c.Context, from, to, dateField, index, query, isOpenClosedIndex, fields, separator, splitFileField, path, pitDuraction, os)
+	err = exportDataToFiles(c.Context, from, to, dateField, index, query, isOpenClosedIndex, fields, separator, splitFileField, path, pitDuraction, compress, os)
 	if err != nil {
 		return err
 	}
@@ -80,7 +83,7 @@ func ExportDataToFiles(c *cli.Context) error {
 	return nil
 }
 
-func exportDataToFiles(ctx context.Context, fromDate string, toDate string, dateField string, index string, query string, isOpenClosedIndex bool, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) error {
+func exportDataToFiles(ctx context.Context, fromDate string, toDate string, dateField string, index string, query string, isOpenClosedIndex bool, fields []string, separator string, splitFileColumn string, path string, pitDuration string, compress bool, os opensearch.Client) error {
 	if path == "" {
 		return errors.New("You must provide path")
 	}
@@ -117,6 +120,7 @@ func exportDataToFiles(ctx context.Context, fromDate string, toDate string, date
 	log.Debugf("path: %s", path)
 	log.Debugf("isOpenClosedIndex: %t", isOpenClosedIndex)
 	log.Debugf("pitDuration: %s", pitDuration)
+	log.Debugf("compress: %t", compress)
 
 	// Search on all index, without needed to work index by index
 	if !isOpenClosedIndex {
@@ -132,14 +136,14 @@ func exportDataToFiles(ctx context.Context, fromDate string, toDate string, date
 			stdos.Exit(1)
 		}()
 
-		return exportDataToFilesWithoutClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, os)
+		return exportDataToFilesWithoutClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, compress, os)
 	} else {
 		// Work index by index
-		return exportDataToFilesWithClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, os)
+		return exportDataToFilesWithClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, compress, os)
 	}
 }
 
-func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) (err error) {
+func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, compress bool, os opensearch.Client) (err error) {
 	// Normalize query
 	query = querydsl.NormalizeLuceneQuery(query)
 
@@ -188,7 +192,7 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 	// writes and reopening files on every batch are extremely costly.
 	// Buffering collapses thousands of write() syscalls per batch into a few,
 	// and keeping file handles open avoids repeated open/stat/close.
-	cache := newFileWriterCache()
+	cache := newFileWriterCache(compress)
 	defer func() {
 		if cerr := cache.Close(); cerr != nil && err == nil {
 			err = cerr
@@ -216,7 +220,7 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 			log.Infof("Found %d document to export", searchResult.Hits.TotalHits.Value)
 		}
 
-		if err = processExport(searchResult, fields, separator, path, splitFileColumn, cache); err != nil {
+		if err = processExport(searchResult, fields, separator, path, splitFileColumn, compress, cache); err != nil {
 			return err
 		}
 
@@ -226,7 +230,7 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 	return nil
 }
 
-func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) error {
+func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, compress bool, os opensearch.Client) error {
 	fromDateExpr, err := datemath.Parse(fromDate)
 	if err != nil {
 		return errors.Wrapf(err, "error to parse date %s", fromDate)
@@ -286,7 +290,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 	log.Infof("Loop over index in datastream %s to found the starting index", index)
 
 	fn := func(ctx context.Context, indexName string) error {
-		return handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, indexName, query, fields, separator, splitFileColumn, path, pitDuration, os)
+		return handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, indexName, query, fields, separator, splitFileColumn, path, pitDuration, compress, os)
 	}
 
 	if err := forEachIndexInDateRange(ctx, os, index, fromDateTime, toDateTime, fn); err != nil {
@@ -297,7 +301,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 }
 
 // handleClosedIndex permit to open index if it's closed, process it and close it if it's not used by another session
-func handleClosedIndex(ctx context.Context, metadata *Metadata, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, os opensearch.Client) (err error) {
+func handleClosedIndex(ctx context.Context, metadata *Metadata, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, compress bool, os opensearch.Client) (err error) {
 	if _, err = lockIndex(ctx, index, metadata, os); err != nil {
 		return errors.Wrapf(err, "error to lock index %s", index)
 	}
@@ -309,15 +313,17 @@ func handleClosedIndex(ctx context.Context, metadata *Metadata, querySize int, f
 		}
 	}()
 
-	return exportDataToFilesWithoutClosedIndex(ctx, querySize, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, os)
+	return exportDataToFilesWithoutClosedIndex(ctx, querySize, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, compress, os)
 }
 
 // fileWriterCache holds buffered writers keyed by file path, kept open for the
 // whole export so that file handles are not reopened on every batch and writes
 // are buffered instead of issuing one write() syscall per document line.
 type fileWriterCache struct {
-	files   map[string]*stdos.File
-	writers map[string]*bufio.Writer
+	compress bool
+	files    map[string]*stdos.File
+	gzips    map[string]*gzip.Writer
+	writers  map[string]*bufio.Writer
 }
 
 const fileWriterBufferSize = 256 * 1024
@@ -353,10 +359,12 @@ func flushAllWriterCaches() {
 	}
 }
 
-func newFileWriterCache() *fileWriterCache {
+func newFileWriterCache(compress bool) *fileWriterCache {
 	c := &fileWriterCache{
-		files:   make(map[string]*stdos.File),
-		writers: make(map[string]*bufio.Writer),
+		compress: compress,
+		files:    make(map[string]*stdos.File),
+		gzips:    make(map[string]*gzip.Writer),
+		writers:  make(map[string]*bufio.Writer),
 	}
 	registerWriterCache(c)
 	return c
@@ -380,7 +388,14 @@ func (c *fileWriterCache) get(fileName string) (*bufio.Writer, error) {
 		return nil, err
 	}
 
-	w := bufio.NewWriterSize(file, fileWriterBufferSize)
+	var w *bufio.Writer
+	if c.compress {
+		gz := gzip.NewWriter(file)
+		w = bufio.NewWriterSize(gz, fileWriterBufferSize)
+		c.gzips[fileName] = gz
+	} else {
+		w = bufio.NewWriterSize(file, fileWriterBufferSize)
+	}
 	c.files[fileName] = file
 	c.writers[fileName] = w
 
@@ -393,6 +408,11 @@ func (c *fileWriterCache) flush() {
 	for name, w := range c.writers {
 		if err := w.Flush(); err != nil {
 			log.Errorf("Error when flush file %s: %s", name, err.Error())
+		}
+	}
+	for name, gz := range c.gzips {
+		if err := gz.Flush(); err != nil {
+			log.Errorf("Error when flush gzip writer %s: %s", name, err.Error())
 		}
 	}
 }
@@ -411,6 +431,14 @@ func (c *fileWriterCache) Close() error {
 			}
 		}
 	}
+	for name, gz := range c.gzips {
+		if err := gz.Close(); err != nil {
+			log.Errorf("Error when close gzip writer %s: %s", name, err.Error())
+			if firstErr == nil {
+				firstErr = err
+			}
+		}
+	}
 	for name, f := range c.files {
 		if err := f.Close(); err != nil {
 			log.Errorf("Error when close file %s: %s", name, err.Error())
@@ -422,7 +450,7 @@ func (c *fileWriterCache) Close() error {
 	return firstErr
 }
 
-func processExport(searchResult *querydsl.SearchResult, fields []string, separator string, path string, splitFileColumn string, cache *fileWriterCache) (err error) {
+func processExport(searchResult *querydsl.SearchResult, fields []string, separator string, path string, splitFileColumn string, compress bool, cache *fileWriterCache) (err error) {
 	log.Debugf("Process %d documents", len(searchResult.Hits.Hits))
 
 	// Loop over results
@@ -437,7 +465,11 @@ func processExport(searchResult *querydsl.SearchResult, fields []string, separat
 				log.Debugf("No value for field %s on document id %s", splitFileColumn, item.Id)
 				fileName = fmt.Sprintf("%s/unknown_host", path)
 			} else {
-				fileName = fmt.Sprintf("%s/%s", path, jsonResult.Get(splitFileColumn))
+				safeValue := filepath.Base(jsonResult.Get(splitFileColumn).Str)
+				fileName = fmt.Sprintf("%s/%s", path, safeValue)
+			}
+			if compress {
+				fileName += ".gz"
 			}
 
 			writer, err := cache.get(fileName)

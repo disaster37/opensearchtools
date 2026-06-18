@@ -174,6 +174,11 @@ func run(args []string) error {
 					Usage: "The PIT duration",
 					Value: "1h",
 				},
+				&cli.BoolFlag{
+					Name:  "compress",
+					Usage: "Gzip-compress each output file on the fly (adds .gz suffix)",
+					Value: false,
+				},
 			},
 			Action: localopensearch.ExportDataToFiles,
 		},
