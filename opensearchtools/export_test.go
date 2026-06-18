@@ -73,11 +73,11 @@ func (s *ESTestSuite) TestExportDataToFilesCompressed() {
 	// Check output file exists as .gz and decompresses to expected content
 	f, err := os.Open(fmt.Sprintf("%s/es-0.gz", dir))
 	assert.NoError(s.T(), err)
-	defer f.Close()
+	defer func() { assert.NoError(s.T(), f.Close()) }()
 
 	gr, err := gzip.NewReader(f)
 	assert.NoError(s.T(), err)
-	defer gr.Close()
+	defer func() { assert.NoError(s.T(), gr.Close()) }()
 
 	decompressed, err := io.ReadAll(gr)
 	assert.NoError(s.T(), err)
