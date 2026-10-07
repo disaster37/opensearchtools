@@ -8,6 +8,7 @@ import (
 	stdos "os"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,6 +23,72 @@ import (
 	"github.com/timberio/go-datemath"
 	"github.com/urfave/cli/v2"
 )
+
+// exportBatchSize is the number of documents fetched per search batch.
+const exportBatchSize = 5000
+
+// exportOptions carries all configuration needed to run an export. It replaces
+// the previous 13-positional-parameter signatures and is passed by value down
+// the export call chain.
+type exportOptions struct {
+	fromDate          string
+	toDate            string
+	dateField         string
+	index             string
+	query             string
+	isOpenClosedIndex bool
+	fields            []string
+	separator         string
+	splitFileColumn   string
+	path              string
+	pitDuration       string
+	compress          bool
+	filters           []*regexp.Regexp // compiled filter regexes; nil/empty = no filtering
+	os                opensearch.Client
+}
+
+// exportStats accumulates export counters across batches and (for the
+// --open-index path) across indexes.
+type exportStats struct {
+	found    int64 // total documents found on OpenSearch (TotalHits)
+	exported int64 // documents actually written after filtering
+}
+
+// compileFilters validates and compiles raw filter patterns. It returns
+// (nil, nil) for an empty pattern list, a clear error for an empty/whitespace
+// pattern, and a wrapped error for an invalid regex.
+func compileFilters(patterns []string) ([]*regexp.Regexp, error) {
+	if len(patterns) == 0 {
+		return nil, nil
+	}
+	compiled := make([]*regexp.Regexp, 0, len(patterns))
+	for i, p := range patterns {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			return nil, errors.Errorf("filter %d is empty", i+1)
+		}
+		re, err := regexp.Compile(p)
+		if err != nil {
+			return nil, errors.Wrapf(err, "invalid filter regex %q (filter %d)", p, i+1)
+		}
+		compiled = append(compiled, re)
+	}
+	return compiled, nil
+}
+
+// matchAnyFilter reports whether line matches at least one compiled filter.
+// An empty filter slice means "keep every line" (no filtering).
+func matchAnyFilter(filters []*regexp.Regexp, line string) bool {
+	if len(filters) == 0 {
+		return true
+	}
+	for _, re := range filters {
+		if re.MatchString(line) {
+			return true
+		}
+	}
+	return false
+}
 
 // ExportDataToFiles permit to extract some datas to files
 // It return error if something wrong
@@ -54,8 +121,29 @@ func ExportDataToFiles(c *cli.Context) error {
 		return errors.New("You must set --query")
 	}
 
-	err = exportDataToFiles(c.Context, from, to, dateField, index, query, isOpenClosedIndex, fields, separator, splitFileField, path, pitDuraction, compress, os)
+	filters, err := compileFilters(c.StringSlice("filters"))
 	if err != nil {
+		return err
+	}
+
+	opts := exportOptions{
+		fromDate:          from,
+		toDate:            to,
+		dateField:         dateField,
+		index:             index,
+		query:             query,
+		isOpenClosedIndex: isOpenClosedIndex,
+		fields:            fields,
+		separator:         separator,
+		splitFileColumn:   splitFileField,
+		path:              path,
+		pitDuration:       pitDuraction,
+		compress:          compress,
+		filters:           filters,
+		os:                os,
+	}
+
+	if err = exportDataToFiles(c.Context, opts); err != nil {
 		return err
 	}
 
@@ -64,47 +152,45 @@ func ExportDataToFiles(c *cli.Context) error {
 	return nil
 }
 
-func exportDataToFiles(ctx context.Context, fromDate string, toDate string, dateField string, index string, query string, isOpenClosedIndex bool, fields []string, separator string, splitFileColumn string, path string, pitDuration string, compress bool, os opensearch.Client) error {
-	if path == "" {
+func exportDataToFiles(ctx context.Context, opts exportOptions) error {
+	if opts.path == "" {
 		return errors.New("You must provide path")
 	}
-	if index == "" {
+	if opts.index == "" {
 		return errors.New("You must provide index")
 	}
 
-	if dateField == "" {
+	if opts.dateField == "" {
 		return errors.New("You must provide date-field")
 	}
 
-	if os == nil {
+	if opts.os == nil {
 		return errors.New("You must provide es client")
 	}
 
-	if _, err := datemath.Parse(fromDate); err != nil {
-		return errors.Wrapf(err, "error to parse date %s", fromDate)
+	if _, err := datemath.Parse(opts.fromDate); err != nil {
+		return errors.Wrapf(err, "error to parse date %s", opts.fromDate)
 	}
 
-	if _, err := datemath.Parse(toDate); err != nil {
-		return errors.Wrapf(err, "error to parse date %s", toDate)
+	if _, err := datemath.Parse(opts.toDate); err != nil {
+		return errors.Wrapf(err, "error to parse date %s", opts.toDate)
 	}
 
-	size := 5000
-
-	log.Debugf("fromDate: %s", fromDate)
-	log.Debugf("toDate: %s", toDate)
-	log.Debugf("dateField: %s", dateField)
-	log.Debugf("index: %s", index)
-	log.Debugf("query: %s", query)
-	log.Debugf("fields: %s", fields)
-	log.Debugf("separator: %s", separator)
-	log.Debugf("splitFileColumn: %s", splitFileColumn)
-	log.Debugf("path: %s", path)
-	log.Debugf("isOpenClosedIndex: %t", isOpenClosedIndex)
-	log.Debugf("pitDuration: %s", pitDuration)
-	log.Debugf("compress: %t", compress)
+	log.Debugf("fromDate: %s", opts.fromDate)
+	log.Debugf("toDate: %s", opts.toDate)
+	log.Debugf("dateField: %s", opts.dateField)
+	log.Debugf("index: %s", opts.index)
+	log.Debugf("query: %s", opts.query)
+	log.Debugf("fields: %s", opts.fields)
+	log.Debugf("separator: %s", opts.separator)
+	log.Debugf("splitFileColumn: %s", opts.splitFileColumn)
+	log.Debugf("path: %s", opts.path)
+	log.Debugf("isOpenClosedIndex: %t", opts.isOpenClosedIndex)
+	log.Debugf("pitDuration: %s", opts.pitDuration)
+	log.Debugf("compress: %t", opts.compress)
 
 	// Search on all index, without needed to work index by index
-	if !isOpenClosedIndex {
+	if !opts.isOpenClosedIndex {
 		// Register signal handler to flush buffered writers on Ctrl+C / kill.
 		// This branch has no metadata cleanup; flushing is the only shutdown work.
 		sigCh := make(chan stdos.Signal, 1)
@@ -117,38 +203,43 @@ func exportDataToFiles(ctx context.Context, fromDate string, toDate string, date
 			stdos.Exit(1)
 		}()
 
-		return exportDataToFilesWithoutClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, compress, os)
-	} else {
-		// Work index by index
-		return exportDataToFilesWithClosedIndex(ctx, size, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, compress, os)
+		stats, err := exportDataToFilesWithoutClosedIndex(ctx, opts)
+		if err != nil {
+			return err
+		}
+		log.Infof("Exported %d documents after filtering (from %d found)", stats.exported, stats.found)
+		return nil
 	}
+
+	// Work index by index
+	return exportDataToFilesWithClosedIndex(ctx, opts)
 }
 
-func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, compress bool, os opensearch.Client) (err error) {
+func exportDataToFilesWithoutClosedIndex(ctx context.Context, opts exportOptions) (stats exportStats, err error) {
 	// Normalize query
-	query = querydsl.NormalizeLuceneQuery(query)
+	opts.query = querydsl.NormalizeLuceneQuery(opts.query)
 
 	// Build query
-	rangeDateQuery := querydsl.NewRangeQuery(dateField).
-		Gte(fromDate).
-		Lte(toDate)
-	stringQuery := querydsl.NewQueryStringQuery(query).WithAnalyzeWildcard(true)
+	rangeDateQuery := querydsl.NewRangeQuery(opts.dateField).
+		Gte(opts.fromDate).
+		Lte(opts.toDate)
+	stringQuery := querydsl.NewQueryStringQuery(opts.query).WithAnalyzeWildcard(true)
 	boolQuery := querydsl.NewBoolQuery().Must(rangeDateQuery, stringQuery)
 
 	// Forge payload
-	computedFields := append(fields, splitFileColumn)
-	pitResponse, err := os.Search().CreatePIT(
+	computedFields := append(opts.fields, opts.splitFileColumn)
+	pitResponse, err := opts.os.Search().CreatePIT(
 		ctx,
 		&api.CreatePITRequest{
-			Indices:   []string{index},
-			KeepAlive: pitDuration,
+			Indices:   []string{opts.index},
+			KeepAlive: opts.pitDuration,
 		},
 	)
 	if err != nil {
-		return errors.Wrap(err, "error to create PIT")
+		return stats, errors.Wrap(err, "error to create PIT")
 	}
 	defer func() {
-		_, err := os.Search().DeletePIT(ctx, &api.DeletePITRequest{
+		_, err := opts.os.Search().DeletePIT(ctx, &api.DeletePITRequest{
 			PitIds: []string{pitResponse.PitId},
 		})
 		if err != nil {
@@ -158,8 +249,8 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 
 	reqDsl := querydsl.NewSearchRequest().
 		Query(boolQuery).
-		Size(querySize).
-		Sort(dateField, true).
+		Size(exportBatchSize).
+		Sort(opts.dateField, true).
 		Sort("_shard_doc", true).
 		FetchSourceContext(querydsl.NewFetchSourceContext(true).Include(computedFields...)).
 		TrackTotalHits(true).
@@ -173,23 +264,23 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 	// writes and reopening files on every batch are extremely costly.
 	// Buffering collapses thousands of write() syscalls per batch into a few,
 	// and keeping file handles open avoids repeated open/stat/close.
-	cache := newFileWriterCache(compress)
+	cache := newFileWriterCache(opts.compress)
 	defer func() {
 		if cerr := cache.Close(); cerr != nil && err == nil {
 			err = cerr
 		}
 	}()
 
-	log.Infof("Start search on Opensearch with index %s and search '%s", index, query)
+	log.Infof("Start search on Opensearch with index %s and search '%s", opts.index, opts.query)
 	for {
 		req, err := api.NewSearchRequest(reqDsl)
 		if err != nil {
-			return errors.Wrap(err, "error to create search request")
+			return stats, errors.Wrap(err, "error to create search request")
 		}
 
-		searchResult, err := os.Search().Search(ctx, req)
+		searchResult, err := opts.os.Search().Search(ctx, req)
 		if err != nil {
-			return err
+			return stats, err
 		}
 
 		if len(searchResult.Hits.Hits) == 0 {
@@ -198,39 +289,42 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, querySize int, fro
 
 		if firstLoop {
 			firstLoop = false
+			stats.found = searchResult.Hits.TotalHits.Value
 			log.Infof("Found %d document to export", searchResult.Hits.TotalHits.Value)
 		}
 
-		if err = processExport(searchResult, fields, separator, path, splitFileColumn, compress, cache); err != nil {
-			return err
+		written, err := processExport(searchResult, opts, cache)
+		if err != nil {
+			return stats, err
 		}
+		stats.exported += int64(written)
 
 		reqDsl.SearchAfter(searchResult.Hits.Hits[len(searchResult.Hits.Hits)-1].Sort...)
 	}
 
-	return nil
+	return stats, nil
 }
 
-func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, compress bool, os opensearch.Client) error {
-	fromDateExpr, err := datemath.Parse(fromDate)
+func exportDataToFilesWithClosedIndex(ctx context.Context, opts exportOptions) error {
+	fromDateExpr, err := datemath.Parse(opts.fromDate)
 	if err != nil {
-		return errors.Wrapf(err, "error to parse date %s", fromDate)
+		return errors.Wrapf(err, "error to parse date %s", opts.fromDate)
 	}
 	fromDateTime := fromDateExpr.Time()
 
-	toDateExpr, err := datemath.Parse(toDate)
+	toDateExpr, err := datemath.Parse(opts.toDate)
 	if err != nil {
-		return errors.Wrapf(err, "error to parse date %s", toDate)
+		return errors.Wrapf(err, "error to parse date %s", opts.toDate)
 	}
 	toDateTime := toDateExpr.Time()
 
 	// Create metadata index
-	if err = createMetadataindexIfNotExist(ctx, os); err != nil {
+	if err = createMetadataindexIfNotExist(ctx, opts.os); err != nil {
 		return err
 	}
 
 	// Get current user
-	authResponse, err := os.Security().AuthInfo(ctx)
+	authResponse, err := opts.os.Security().AuthInfo(ctx)
 	if err != nil {
 		return errors.Wrap(err, "error to get current user")
 	}
@@ -242,13 +336,13 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 		SessionId: uuid.New().String(),
 		Indexes:   []string{},
 	}
-	if err = createMetdata(ctx, metadata, os); err != nil {
+	if err = createMetdata(ctx, metadata, opts.os); err != nil {
 		return errors.Wrap(err, "error to create metadata document")
 	}
 
 	defer func() {
 		// Delete metadata document
-		if err := cleanMetadataExportWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, os); err != nil {
+		if err := cleanMetadataExportWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, opts.os); err != nil {
 			log.Errorf("error to delete metadata document %s: %v", metadata.Id, err)
 		}
 	}()
@@ -261,40 +355,50 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, querySize int, fromDa
 		log.Warn("Received termination signal, cleaning up...")
 		// Flush buffered writers before exiting so no exported data is lost.
 		flushAllWriterCaches()
-		if cleanErr := cleanMetadataExportWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, os); cleanErr != nil {
+		if cleanErr := cleanMetadataExportWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, opts.os); cleanErr != nil {
 			log.Errorf("Error during cleanup: %v", cleanErr)
 		}
 		stdos.Exit(1)
 	}()
 	defer signal.Stop(sigCh)
 
-	log.Infof("Loop over index in datastream %s to found the starting index", index)
+	log.Infof("Loop over index in datastream %s to found the starting index", opts.index)
 
+	var total exportStats
 	fn := func(ctx context.Context, indexName string) error {
-		return handleClosedIndex(ctx, metadata, querySize, fromDate, toDate, dateField, indexName, query, fields, separator, splitFileColumn, path, pitDuration, compress, os)
+		s, err := handleClosedIndex(ctx, metadata, indexName, opts)
+		if err != nil {
+			return err
+		}
+		total.found += s.found
+		total.exported += s.exported
+		return nil
 	}
 
-	if err := forEachIndexInDateRange(ctx, os, index, fromDateTime, toDateTime, fn); err != nil {
+	if err := forEachIndexInDateRange(ctx, opts.os, opts.index, fromDateTime, toDateTime, fn); err != nil {
 		return err
 	}
+
+	log.Infof("Exported %d documents after filtering (from %d found)", total.exported, total.found)
 
 	return nil
 }
 
 // handleClosedIndex permit to open index if it's closed, process it and close it if it's not used by another session
-func handleClosedIndex(ctx context.Context, metadata *Metadata, querySize int, fromDate string, toDate string, dateField string, index string, query string, fields []string, separator string, splitFileColumn string, path string, pitDuration string, compress bool, os opensearch.Client) (err error) {
-	if _, err = lockIndex(ctx, index, metadata, os); err != nil {
-		return errors.Wrapf(err, "error to lock index %s", index)
+func handleClosedIndex(ctx context.Context, metadata *Metadata, index string, opts exportOptions) (stats exportStats, err error) {
+	if _, err = lockIndex(ctx, index, metadata, opts.os); err != nil {
+		return stats, errors.Wrapf(err, "error to lock index %s", index)
 	}
 	defer func() {
 		// unlock index
-		err = unlockIndex(ctx, index, metadata, os)
+		err = unlockIndex(ctx, index, metadata, opts.os)
 		if err != nil {
 			log.Errorf("Error when unlock index %s: %s", index, err.Error())
 		}
 	}()
 
-	return exportDataToFilesWithoutClosedIndex(ctx, querySize, fromDate, toDate, dateField, index, query, fields, separator, splitFileColumn, path, pitDuration, compress, os)
+	opts.index = index
+	return exportDataToFilesWithoutClosedIndex(ctx, opts)
 }
 
 // fileWriterCache holds buffered writers keyed by file path, kept open for the
@@ -431,48 +535,53 @@ func (c *fileWriterCache) Close() error {
 	return firstErr
 }
 
-func processExport(searchResult *querydsl.SearchResult, fields []string, separator string, path string, splitFileColumn string, compress bool, cache *fileWriterCache) (err error) {
+func processExport(searchResult *querydsl.SearchResult, opts exportOptions, cache *fileWriterCache) (written int, err error) {
 	log.Debugf("Process %d documents", len(searchResult.Hits.Hits))
 
-	// Loop over results
-	if len(searchResult.Hits.Hits) > 0 {
-		var fileName string
+	filtered := 0
+	for _, item := range searchResult.Hits.Hits {
+		jsonResult := gjson.ParseBytes(item.Source)
 
-		for _, item := range searchResult.Hits.Hits {
+		// 1. Build the output line first.
+		td := make([]string, 0, len(opts.fields))
+		for _, field := range opts.fields {
+			td = append(td, jsonResult.Get(field).Str)
+		}
+		line := strings.Join(td, opts.separator)
 
-			// Determine target file to write result
-			jsonResult := gjson.ParseBytes(item.Source)
-			if jsonResult.Get(splitFileColumn).Str == "" {
-				log.Debugf("No value for field %s on document id %s", splitFileColumn, item.Id)
-				fileName = fmt.Sprintf("%s/unknown_host", path)
-			} else {
-				safeValue := filepath.Base(jsonResult.Get(splitFileColumn).Str)
-				fileName = fmt.Sprintf("%s/%s", path, safeValue)
-			}
-			if compress {
-				fileName += ".gz"
-			}
-
-			writer, err := cache.get(fileName)
-			if err != nil {
-				return err
-			}
-
-			// Extract needed columns
-			td := make([]string, 0)
-			for _, field := range fields {
-				td = append(td, jsonResult.Get(field).Str)
-			}
-
-			// Write result to the buffered writer
-			_, err = fmt.Fprintf(writer, "%s\n", strings.Join(td, separator))
-			if err != nil {
-				log.Errorf("Error when write file: %s", err.Error())
-				return err
-			}
+		// 2. Filter BEFORE determining filename / opening any file.
+		if !matchAnyFilter(opts.filters, line) {
+			filtered++
+			continue
 		}
 
+		// 3. Determine target file (unchanged logic).
+		var fileName string
+		if jsonResult.Get(opts.splitFileColumn).Str == "" {
+			log.Debugf("No value for field %s on document id %s", opts.splitFileColumn, item.Id)
+			fileName = fmt.Sprintf("%s/unknown_host", opts.path)
+		} else {
+			safeValue := filepath.Base(jsonResult.Get(opts.splitFileColumn).Str)
+			fileName = fmt.Sprintf("%s/%s", opts.path, safeValue)
+		}
+		if opts.compress {
+			fileName += ".gz"
+		}
+
+		// 4. Open writer (creates file only here) and write.
+		writer, err := cache.get(fileName)
+		if err != nil {
+			return written, err
+		}
+		if _, err = fmt.Fprintf(writer, "%s\n", line); err != nil {
+			log.Errorf("Error when write file: %s", err.Error())
+			return written, err
+		}
+		written++
+	}
+	if filtered > 0 {
+		log.Debugf("Filtered out %d of %d documents in this batch", filtered, len(searchResult.Hits.Hits))
 	}
 
-	return nil
+	return written, nil
 }
