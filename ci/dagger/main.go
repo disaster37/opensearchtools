@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"dagger/opensearchtools/internal/dagger"
 
@@ -142,7 +143,7 @@ func (h *Opensearchtools) Ci(
 			gitToken,
 			dagger.GitModuleCommitAndPushOpts{
 				BranchName: gitBranch,
-				GitRepoURL: "https://github.com/disaster37/opensearch.git",
+				GitRepoURL: "https://github.com/disaster37/opensearchtools.git",
 				Message:    "Commit from CI",
 			},
 		); err != nil {
@@ -319,7 +320,7 @@ func (h *Opensearchtools) BuildImage(
 	imageBuilder := dag.Image().Build(h.Src)
 
 	if ci {
-		_, err = imageBuilder.Push(ctx, repository, version, registry, dagger.ImageBuildPushOpts{WithRegistryUsername: registryUsername, WithRegistryPassword: registryPassword})
+		_, err = imageBuilder.Push(ctx, repository, sanitizeImageVersion(version), registry, dagger.ImageBuildPushOpts{WithRegistryUsername: registryUsername, WithRegistryPassword: registryPassword})
 		if err != nil {
 			return errors.Wrapf(err, "Error when push image '%s'", repository)
 		}
@@ -332,6 +333,26 @@ func (h *Opensearchtools) BuildImage(
 	}
 
 	return nil
+}
+
+// sanitizeImageVersion turns an arbitrary version string into a valid Docker
+// image tag. GitHub PR refs look like "4/merge" and "/" is not allowed in a
+// Docker tag, so any character outside the allowed set is replaced with "-".
+// Leading characters that are not valid tag starters are trimmed.
+func sanitizeImageVersion(version string) string {
+	var b strings.Builder
+	for _, r := range version {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '_', r == '.', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return strings.TrimLeft(b.String(), ".-")
 }
 
 // GoreleaserRelease compile les binaires et les publie sur la Release GitHub

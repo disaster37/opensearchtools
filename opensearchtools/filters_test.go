@@ -49,5 +49,5 @@ func TestMatchAnyFilter(t *testing.T) {
 
 	assert.False(t, matchAnyFilter([]*regexp.Regexp{regexp.MustCompile("error")}, "Error"))
 
-	assert.True(t, matchAnyFilter([]*regexp.Regexp{regexp.MustCompile("a\\|b")}, "a|b"))
+	assert.True(t, matchAnyFilter([]*regexp.Regexp{regexp.MustCompile(`a\|b`)}, "a|b"))
 }
