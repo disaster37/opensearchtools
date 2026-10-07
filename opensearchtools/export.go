@@ -390,10 +390,12 @@ func handleClosedIndex(ctx context.Context, metadata *Metadata, index string, op
 		return stats, errors.Wrapf(err, "error to lock index %s", index)
 	}
 	defer func() {
-		// unlock index
-		err = unlockIndex(ctx, index, metadata, opts.os)
-		if err != nil {
-			log.Errorf("Error when unlock index %s: %s", index, err.Error())
+		// unlock index; never mask the export error with the unlock result
+		if uerr := unlockIndex(ctx, index, metadata, opts.os); uerr != nil {
+			log.Errorf("Error when unlock index %s: %s", index, uerr.Error())
+			if err == nil {
+				err = uerr
+			}
 		}
 	}()
 
