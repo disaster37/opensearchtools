@@ -45,7 +45,7 @@ type exportOptions struct {
 	pitDuration       string
 	compress          bool
 	filters           []*regexp.Regexp // compiled filter regexes; nil/empty = no filtering
-	progress          *exportProgress  // shared cross-goroutine counters; nil when not tracked
+	progress          *exportProgress  // shared cross-goroutine counters; nil only in direct unit-test calls
 	os                opensearch.Client
 }
 
@@ -69,6 +69,11 @@ type exportProgress struct {
 // formatExportSummary formats the canonical filtered-export summary phrase.
 func formatExportSummary(exported, found int64) string {
 	return fmt.Sprintf("Exported %d documents after filtering (from %d found)", exported, found)
+}
+
+// formatPerIndexSummary formats the per-index filtered-export summary phrase.
+func formatPerIndexSummary(exported, found int64, indexName string) string {
+	return fmt.Sprintf("%s for index %s", formatExportSummary(exported, found), indexName)
 }
 
 // compileFilters validates and compiles raw filter patterns. It returns
@@ -397,7 +402,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, opts exportOptions) e
 		}
 		total.found += s.found
 		total.exported += s.exported
-		log.Infof("%s for index %s", formatExportSummary(s.exported, s.found), indexName)
+		log.Infof("%s", formatPerIndexSummary(s.exported, s.found, indexName))
 		return nil
 	}
 

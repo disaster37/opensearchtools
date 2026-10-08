@@ -61,6 +61,10 @@ func TestFormatExportSummary(t *testing.T) {
 	assert.Equal(t, "Exported 2 documents after filtering (from 3 found)", formatExportSummary(2, 3))
 }
 
+func TestFormatPerIndexSummary(t *testing.T) {
+	assert.Equal(t, "Exported 2 documents after filtering (from 3 found) for index .ds-test-000001", formatPerIndexSummary(2, 3, ".ds-test-000001"))
+}
+
 func TestExportProgress(t *testing.T) {
 	var p exportProgress
 	assert.Equal(t, int64(0), p.found.Load())
@@ -97,8 +101,9 @@ func TestExportProgress(t *testing.T) {
 
 func TestLogInterruptSummary(t *testing.T) {
 	var buf bytes.Buffer
+	orig := log.StandardLogger().Out
+	defer log.SetOutput(orig)
 	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
 
 	logInterruptSummary(nil)
 	assert.Contains(t, buf.String(), "Exported 0 documents after filtering (from 0 found) before interruption")
@@ -117,8 +122,9 @@ func TestRunInterruptShutdownOrdering(t *testing.T) {
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	var buf bytes.Buffer
+	orig := log.StandardLogger().Out
+	defer log.SetOutput(orig)
 	log.SetOutput(&buf)
-	defer log.SetOutput(os.Stderr)
 
 	cache := newFileWriterCache(false)
 	defer func() { _ = cache.Close() }()
