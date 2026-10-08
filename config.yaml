@@ -1,0 +1,4 @@
+url: <url>
+self-signed-certificate: true
+user: <user>
+password: <password>
