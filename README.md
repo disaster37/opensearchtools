@@ -129,7 +129,11 @@ opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin -
 At Info level, the export logs the number of documents found on OpenSearch
 (`Found N document to export`) and, after applying `--filters`, the number actually written
 (`Exported N documents after filtering (from M found)`). With `--open-index`, the
-`Exported ...` summary is a single aggregate across all processed indexes.
+`Exported ...` summary is a single aggregate across all processed indexes, and each index
+also logs its own `Exported N documents after filtering (from M found) for index <name>` as
+it completes. If the export is interrupted (Ctrl+C/SIGTERM), the accumulated counts are
+logged as `Exported N documents after filtering (from M found) before interruption` and the
+tool exits with code 1.
 
 https://127.0.0.1:9200/.opensearchtools/_search
 https://127.0.0.1:9200/.opensearchtools/_search

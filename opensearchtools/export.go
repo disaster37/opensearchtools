@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 
 	"github.com/disaster37/opensearch/v4"
@@ -44,6 +45,7 @@ type exportOptions struct {
 	pitDuration       string
 	compress          bool
 	filters           []*regexp.Regexp // compiled filter regexes; nil/empty = no filtering
+	progress          *exportProgress  // shared cross-goroutine counters; nil when not tracked
 	os                opensearch.Client
 }
 
@@ -52,6 +54,21 @@ type exportOptions struct {
 type exportStats struct {
 	found    int64 // total documents found on OpenSearch (TotalHits)
 	exported int64 // documents actually written after filtering
+}
+
+// exportProgress holds counters written by the export goroutine and read by the
+// signal-handler goroutine at interrupt time. Fields are atomic so the two
+// goroutines never race and the export hot path stays lock-free. Use only
+// through a pointer; do not copy the struct after first use (atomic values must
+// not be copied).
+type exportProgress struct {
+	found    atomic.Int64 // total documents found (TotalHits), accumulated across indexes on the open-index path
+	exported atomic.Int64 // documents written after filtering; updated once per batch
+}
+
+// formatExportSummary formats the canonical filtered-export summary phrase.
+func formatExportSummary(exported, found int64) string {
+	return fmt.Sprintf("Exported %d documents after filtering (from %d found)", exported, found)
 }
 
 // compileFilters validates and compiles raw filter patterns. It returns
@@ -189,6 +206,8 @@ func exportDataToFiles(ctx context.Context, opts exportOptions) error {
 	log.Debugf("pitDuration: %s", opts.pitDuration)
 	log.Debugf("compress: %t", opts.compress)
 
+	opts.progress = &exportProgress{} // set before any goroutine is spawned
+
 	// Search on all index, without needed to work index by index
 	if !opts.isOpenClosedIndex {
 		// Register signal handler to flush buffered writers on Ctrl+C / kill.
@@ -199,7 +218,7 @@ func exportDataToFiles(ctx context.Context, opts exportOptions) error {
 		go func() {
 			<-sigCh
 			log.Warn("Received termination signal, flushing buffered data...")
-			flushAllWriterCaches()
+			runInterruptShutdown(opts.progress, nil)
 			stdos.Exit(1)
 		}()
 
@@ -207,7 +226,7 @@ func exportDataToFiles(ctx context.Context, opts exportOptions) error {
 		if err != nil {
 			return err
 		}
-		log.Infof("Exported %d documents after filtering (from %d found)", stats.exported, stats.found)
+		log.Infof("%s", formatExportSummary(stats.exported, stats.found))
 		return nil
 	}
 
@@ -290,6 +309,9 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, opts exportOptions
 		if firstLoop {
 			firstLoop = false
 			stats.found = searchResult.Hits.TotalHits.Value
+			if opts.progress != nil {
+				opts.progress.found.Add(searchResult.Hits.TotalHits.Value)
+			}
 			log.Infof("Found %d document to export", searchResult.Hits.TotalHits.Value)
 		}
 
@@ -298,6 +320,9 @@ func exportDataToFilesWithoutClosedIndex(ctx context.Context, opts exportOptions
 			return stats, err
 		}
 		stats.exported += int64(written)
+		if opts.progress != nil {
+			opts.progress.exported.Add(int64(written))
+		}
 
 		reqDsl.SearchAfter(searchResult.Hits.Hits[len(searchResult.Hits.Hits)-1].Sort...)
 	}
@@ -353,11 +378,11 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, opts exportOptions) e
 	go func() {
 		<-sigCh
 		log.Warn("Received termination signal, cleaning up...")
-		// Flush buffered writers before exiting so no exported data is lost.
-		flushAllWriterCaches()
-		if cleanErr := cleanMetadataExportWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, opts.os); cleanErr != nil {
-			log.Errorf("Error during cleanup: %v", cleanErr)
-		}
+		runInterruptShutdown(opts.progress, func() {
+			if cleanErr := cleanMetadataExportWithAutoOpenIndex(context.Background(), authResponse.UserName, metadata.SessionId, opts.os); cleanErr != nil {
+				log.Errorf("Error during cleanup: %v", cleanErr)
+			}
+		})
 		stdos.Exit(1)
 	}()
 	defer signal.Stop(sigCh)
@@ -372,6 +397,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, opts exportOptions) e
 		}
 		total.found += s.found
 		total.exported += s.exported
+		log.Infof("%s for index %s", formatExportSummary(s.exported, s.found), indexName)
 		return nil
 	}
 
@@ -379,7 +405,7 @@ func exportDataToFilesWithClosedIndex(ctx context.Context, opts exportOptions) e
 		return err
 	}
 
-	log.Infof("Exported %d documents after filtering (from %d found)", total.exported, total.found)
+	log.Infof("%s", formatExportSummary(total.exported, total.found))
 
 	return nil
 }
@@ -444,6 +470,27 @@ func flushAllWriterCaches() {
 	for c := range writerCacheRegistry {
 		c.flush()
 	}
+}
+
+// runInterruptShutdown performs the ordered interrupt sequence: flush buffered
+// writers, log accumulated stats, then run cleanup (metadata cleanup on the
+// open-index path). The caller must call os.Exit(1) afterwards. Split from the
+// signal listener so its side effects and ordering are testable.
+func runInterruptShutdown(progress *exportProgress, cleanup func()) {
+	flushAllWriterCaches()
+	logInterruptSummary(progress)
+	if cleanup != nil {
+		cleanup()
+	}
+}
+
+// logInterruptSummary logs the accumulated counters at interrupt time.
+func logInterruptSummary(progress *exportProgress) {
+	if progress == nil {
+		log.Infof("%s before interruption", formatExportSummary(0, 0))
+		return
+	}
+	log.Infof("%s before interruption", formatExportSummary(progress.exported.Load(), progress.found.Load()))
 }
 
 func newFileWriterCache(compress bool) *fileWriterCache {
