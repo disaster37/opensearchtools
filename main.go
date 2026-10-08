@@ -154,6 +154,10 @@ func run(args []string) error {
 					Usage: "Fields to extracts",
 					Value: cli.NewStringSlice("log.original"),
 				},
+				&cli.StringSliceFlag{
+					Name:  "filters",
+					Usage: "Go regex to keep only matching output lines (repeatable, OR semantics). Matches the extracted fields joined by --separator",
+				},
 				&cli.StringFlag{
 					Name:  "separator",
 					Usage: "The separator to concatain field when extract multi fields",

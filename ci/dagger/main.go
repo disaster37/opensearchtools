@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"dagger/opensearchtools/internal/dagger"
 
@@ -142,7 +143,7 @@ func (h *Opensearchtools) Ci(
 			gitToken,
 			dagger.GitModuleCommitAndPushOpts{
 				BranchName: gitBranch,
-				GitRepoURL: "https://github.com/disaster37/opensearch.git",
+				GitRepoURL: "https://github.com/disaster37/opensearchtools.git",
 				Message:    "Commit from CI",
 			},
 		); err != nil {
@@ -183,6 +184,23 @@ func (h *Opensearchtools) Format(
 	return h.GolangModule.Format()
 }
 
+// opensearchSetupScript waits for the OpenSearch service to be ready and loads
+// the test fixtures. It is prepended to the test command so that setup and tests
+// run in a single exec: the OpenSearch service (and the data living in it) is
+// torn down as soon as the exec that bound it finishes, so loading the fixtures
+// from any other exec would leave the test exec with a fresh, empty service.
+const opensearchSetupScript = `
+set -e
+sleep 10
+curl --fail -XGET -k -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD "https://opensearch.svc:9200/_cluster/health?wait_for_status=yellow&timeout=500s"
+curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/logs/_bulk?refresh=wait_for --data-binary @fixtures/logs/bulk.ndjson
+curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_index_template/ds -d @fixtures/logs/index_template.json
+curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_data_stream/test
+curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_data_stream/test-metadata
+curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/test/_bulk?refresh=wait_for --data-binary @fixtures/logs/bulk.ndjson
+sleep 10
+`
+
 func (h *Opensearchtools) Opensearch(
 	ctx context.Context,
 ) (*dagger.Service, error) {
@@ -200,25 +218,6 @@ func (h *Opensearchtools) Opensearch(
 		WithEnvVariable("OPENSEARCH_INITIAL_ADMIN_PASSWORD", password).
 		WithExposedPort(9200).
 		AsService()
-
-	_, err := h.GolangModule.Container().
-		WithServiceBinding("opensearch.svc", os).
-		WithEnvVariable("OPENSEARCH_USERNAME", username).
-		WithEnvVariable("OPENSEARCH_PASSWORD", password).
-		WithExec(helper.ForgeScript(`
-set -e
-sleep 10
-curl --fail -XGET -k -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD "https://opensearch.svc:9200/_cluster/health?wait_for_status=yellow&timeout=500s"
-curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/logs/_bulk?refresh=wait_for --data-binary @fixtures/logs/bulk.ndjson
-curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_index_template/ds -d @fixtures/logs/index_template.json
-curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_data_stream/test
-curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/json" -XPUT https://opensearch.svc:9200/_data_stream/test-metadata
-curl --fail -u $OPENSEARCH_USERNAME:$OPENSEARCH_PASSWORD -k -H "Content-Type: application/x-ndjson" -XPOST https://opensearch.svc:9200/test/_bulk?refresh=wait_for --data-binary @fixtures/logs/bulk.ndjson
-sleep 10
-`)).Sync(ctx)
-	if err != nil {
-		return nil, err
-	}
 
 	return os, nil
 }
@@ -243,19 +242,43 @@ func (h *Opensearchtools) Test(
 		return nil, err
 	}
 
-	goContainer := h.GolangModule.Container().
+	// Install gotestsum before binding the OpenSearch service. Running an exec on
+	// a container that binds the service starts (and then stops) the service,
+	// discarding the fixtures loaded into it. Once the service is bound, the
+	// fixture setup and the test command must therefore share a single exec.
+	ctr := h.GolangModule.Container()
+	if _, err = ctr.WithExec([]string{"gotestsum", "--version"}).Sync(ctx); err != nil {
+		ctr = ctr.WithExec(helper.ForgeCommand("go install gotest.tools/gotestsum@latest"))
+	}
+
+	testPath := "./..."
+	if path != "" {
+		testPath = path
+	}
+
+	cmd := "gotestsum --format testname -- -p=1 -count=1 -vet=off -timeout=60m -covermode=atomic -coverprofile=coverage.out.tmp"
+	if short {
+		cmd += " -short"
+	}
+	if shuffle {
+		cmd += " -shuffle=on"
+	}
+	if run != "" {
+		cmd += " -run '" + run + "'"
+	}
+	if skip != "" {
+		cmd += " -skip '" + skip + "'"
+	}
+	cmd += " " + testPath
+
+	script := opensearchSetupScript + "\n" + cmd + "\n" + `cat coverage.out.tmp | grep -v "_generated.*.go" > coverage.out`
+
+	return ctr.
 		WithServiceBinding("opensearch.svc", opensearchService).
 		WithEnvVariable("OPENSEARCH_USERNAME", username).
-		WithEnvVariable("OPENSEARCH_PASSWORD", password)
-
-	return dag.Golang(h.Src, dagger.GolangOpts{Base: goContainer}).Test(dagger.GolangTestOpts{
-		Short:         short,
-		Shuffle:       shuffle,
-		Run:           run,
-		Skip:          skip,
-		WithGotestsum: true,
-		Path:          path,
-	}), nil
+		WithEnvVariable("OPENSEARCH_PASSWORD", password).
+		WithExec(helper.ForgeScript(script)).
+		File("coverage.out"), nil
 }
 
 // Build permit to build project
@@ -319,7 +342,7 @@ func (h *Opensearchtools) BuildImage(
 	imageBuilder := dag.Image().Build(h.Src)
 
 	if ci {
-		_, err = imageBuilder.Push(ctx, repository, version, registry, dagger.ImageBuildPushOpts{WithRegistryUsername: registryUsername, WithRegistryPassword: registryPassword})
+		_, err = imageBuilder.Push(ctx, repository, sanitizeImageVersion(version), registry, dagger.ImageBuildPushOpts{WithRegistryUsername: registryUsername, WithRegistryPassword: registryPassword})
 		if err != nil {
 			return errors.Wrapf(err, "Error when push image '%s'", repository)
 		}
@@ -332,6 +355,26 @@ func (h *Opensearchtools) BuildImage(
 	}
 
 	return nil
+}
+
+// sanitizeImageVersion turns an arbitrary version string into a valid Docker
+// image tag. GitHub PR refs look like "4/merge" and "/" is not allowed in a
+// Docker tag, so any character outside the allowed set is replaced with "-".
+// Leading characters that are not valid tag starters are trimmed.
+func sanitizeImageVersion(version string) string {
+	var b strings.Builder
+	for _, r := range version {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '_', r == '.', r == '-':
+			b.WriteRune(r)
+		default:
+			b.WriteRune('-')
+		}
+	}
+	return strings.TrimLeft(b.String(), ".-")
 }
 
 // GoreleaserRelease compile les binaires et les publie sur la Release GitHub

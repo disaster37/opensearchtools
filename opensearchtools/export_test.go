@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -21,7 +22,22 @@ func (s *ESTestSuite) TestExportDataToFiles() {
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	// Exports data without errors
-	err = exportDataToFiles(context.Background(), "now-1000y", "now", "@timestamp", "logs", "*", false, []string{"message"}, "|", "node_name", dir, "24h", false, s.client)
+	opts := exportOptions{
+		fromDate:          "now-1000y",
+		toDate:            "now",
+		dateField:         "@timestamp",
+		index:             "logs",
+		query:             "*",
+		isOpenClosedIndex: false,
+		fields:            []string{"message"},
+		separator:         "|",
+		splitFileColumn:   "node_name",
+		path:              dir,
+		pitDuration:       "24h",
+		compress:          false,
+		os:                s.client,
+	}
+	err = exportDataToFiles(context.Background(), opts)
 	assert.NoError(s.T(), err)
 
 	// Check output file exists
@@ -44,7 +60,22 @@ func (s *ESTestSuite) TestExportDataToFilesWithOpenIndex() {
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	// Exports data without errors
-	err = exportDataToFiles(context.Background(), "now-1000y", "now", "@timestamp", "test", "*", true, []string{"message"}, "|", "node_name", dir, "24h", false, s.client)
+	opts := exportOptions{
+		fromDate:          "now-1000y",
+		toDate:            "now",
+		dateField:         "@timestamp",
+		index:             "test",
+		query:             "*",
+		isOpenClosedIndex: true,
+		fields:            []string{"message"},
+		separator:         "|",
+		splitFileColumn:   "node_name",
+		path:              dir,
+		pitDuration:       "24h",
+		compress:          false,
+		os:                s.client,
+	}
+	err = exportDataToFiles(context.Background(), opts)
 	assert.NoError(s.T(), err)
 
 	// Check output file exists
@@ -67,7 +98,22 @@ func (s *ESTestSuite) TestExportDataToFilesCompressed() {
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	// Exports data with compression enabled
-	err = exportDataToFiles(context.Background(), "now-1000y", "now", "@timestamp", "logs", "*", false, []string{"message"}, "|", "node_name", dir, "24h", true, s.client)
+	opts := exportOptions{
+		fromDate:          "now-1000y",
+		toDate:            "now",
+		dateField:         "@timestamp",
+		index:             "logs",
+		query:             "*",
+		isOpenClosedIndex: false,
+		fields:            []string{"message"},
+		separator:         "|",
+		splitFileColumn:   "node_name",
+		path:              dir,
+		pitDuration:       "24h",
+		compress:          true,
+		os:                s.client,
+	}
+	err = exportDataToFiles(context.Background(), opts)
 	assert.NoError(s.T(), err)
 
 	// Check output file exists as .gz and decompresses to expected content
@@ -82,4 +128,43 @@ func (s *ESTestSuite) TestExportDataToFilesCompressed() {
 	decompressed, err := io.ReadAll(gr)
 	assert.NoError(s.T(), err)
 	assert.Equal(s.T(), "[gc][17868238] overhead, spent [334ms] collecting in the last [1s]\n", string(decompressed))
+}
+
+func (s *ESTestSuite) TestExportDataToFilesWithFilters() {
+	logrus.SetLevel(logrus.TraceLevel)
+
+	dir, err := os.MkdirTemp("/tmp", "test")
+	if err != nil {
+		s.T().Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	opts := exportOptions{
+		fromDate:          "now-1000y",
+		toDate:            "now",
+		dateField:         "@timestamp",
+		index:             "logs",
+		query:             "*",
+		isOpenClosedIndex: false,
+		fields:            []string{"message"},
+		separator:         "|",
+		splitFileColumn:   "node_name",
+		path:              dir,
+		pitDuration:       "24h",
+		compress:          false,
+		filters:           []*regexp.Regexp{regexp.MustCompile("334ms")},
+		os:                s.client,
+	}
+
+	stats, err := exportDataToFilesWithoutClosedIndex(context.Background(), opts)
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), int64(2), stats.found)
+	assert.Equal(s.T(), int64(1), stats.exported)
+
+	content, err := os.ReadFile(fmt.Sprintf("%s/es-0", dir))
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "[gc][17868238] overhead, spent [334ms] collecting in the last [1s]\n", string(content))
+
+	_, err = os.ReadFile(fmt.Sprintf("%s/es-1", dir))
+	assert.True(s.T(), os.IsNotExist(err))
 }
