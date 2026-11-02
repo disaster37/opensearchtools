@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"encoding/csv"
 	"fmt"
 	stdos "os"
 	"os/signal"
@@ -13,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"unicode/utf8"
 
 	"github.com/disaster37/opensearch/v4"
 	"github.com/disaster37/opensearch/v4/api"
@@ -112,6 +114,36 @@ func matchAnyFilter(filters []*regexp.Regexp, line string) bool {
 	return false
 }
 
+// validateSeparator checks that sep is a single valid UTF-8 rune suitable as a
+// CSV delimiter (not empty, not multi-rune, and not NUL, U+FFFD, '"', '\r', or '\n').
+func validateSeparator(sep string) error {
+	if sep == "" {
+		return errors.New("separator must not be empty")
+	}
+	r, size := utf8.DecodeRuneInString(sep)
+	if r == utf8.RuneError || !utf8.ValidRune(r) {
+		return errors.Errorf("invalid UTF-8 separator %q", sep)
+	}
+	if size != len(sep) {
+		return errors.Errorf("separator must be a single character, got %q", sep)
+	}
+	switch r {
+	case 0:
+		return errors.New("separator cannot be NUL character")
+	case '"':
+		return errors.New("separator cannot be double quote (\")")
+	case '\r', '\n':
+		return errors.New("separator cannot be a newline character")
+	}
+	return nil
+}
+
+// isCSVMode reports whether the export should format output lines as RFC 4180 CSV.
+// Single-field exports (len <= 1) use raw mode; multi-field exports (len > 1) use CSV mode.
+func isCSVMode(fields []string) bool {
+	return len(fields) > 1
+}
+
 // ExportDataToFiles permit to extract some datas to files
 // It return error if something wrong
 func ExportDataToFiles(c *cli.Context) error {
@@ -141,6 +173,10 @@ func ExportDataToFiles(c *cli.Context) error {
 	}
 	if query == "" {
 		return errors.New("You must set --query")
+	}
+
+	if err := validateSeparator(separator); err != nil {
+		return err
 	}
 
 	filters, err := compileFilters(c.StringSlice("filters"))
@@ -188,6 +224,10 @@ func exportDataToFiles(ctx context.Context, opts exportOptions) error {
 
 	if opts.os == nil {
 		return errors.New("You must provide es client")
+	}
+
+	if err := validateSeparator(opts.separator); err != nil {
+		return err
 	}
 
 	if _, err := datemath.Parse(opts.fromDate); err != nil {
@@ -438,10 +478,11 @@ func handleClosedIndex(ctx context.Context, metadata *Metadata, index string, op
 // whole export so that file handles are not reopened on every batch and writes
 // are buffered instead of issuing one write() syscall per document line.
 type fileWriterCache struct {
-	compress bool
-	files    map[string]*stdos.File
-	gzips    map[string]*gzip.Writer
-	writers  map[string]*bufio.Writer
+	compress   bool
+	files      map[string]*stdos.File
+	gzips      map[string]*gzip.Writer
+	writers    map[string]*bufio.Writer
+	csvWriters map[string]*csv.Writer
 }
 
 const fileWriterBufferSize = 256 * 1024
@@ -500,10 +541,11 @@ func logInterruptSummary(progress *exportProgress) {
 
 func newFileWriterCache(compress bool) *fileWriterCache {
 	c := &fileWriterCache{
-		compress: compress,
-		files:    make(map[string]*stdos.File),
-		gzips:    make(map[string]*gzip.Writer),
-		writers:  make(map[string]*bufio.Writer),
+		compress:   compress,
+		files:      make(map[string]*stdos.File),
+		gzips:      make(map[string]*gzip.Writer),
+		writers:    make(map[string]*bufio.Writer),
+		csvWriters: make(map[string]*csv.Writer),
 	}
 	registerWriterCache(c)
 	return c
@@ -539,6 +581,25 @@ func (c *fileWriterCache) get(fileName string) (*bufio.Writer, error) {
 	c.writers[fileName] = w
 
 	return w, nil
+}
+
+// getCSVWriter returns a *csv.Writer for fileName configured with comma as its
+// field delimiter. Because c.get(fileName) returns a 256 KB *bufio.Writer and
+// csv.NewWriter calls bufio.NewWriter (which reuses an existing *bufio.Writer
+// whose buffer is >= 4 KB), the returned *csv.Writer writes directly into the
+// cached *bufio.Writer without double buffering.
+func (c *fileWriterCache) getCSVWriter(fileName string, comma rune) (*csv.Writer, error) {
+	if cw, ok := c.csvWriters[fileName]; ok {
+		return cw, nil
+	}
+	w, err := c.get(fileName)
+	if err != nil {
+		return nil, err
+	}
+	cw := csv.NewWriter(w)
+	cw.Comma = comma
+	c.csvWriters[fileName] = cw
+	return cw, nil
 }
 
 // flush flushes every buffered writer without closing the files. It is safe to
@@ -592,19 +653,21 @@ func (c *fileWriterCache) Close() error {
 func processExport(searchResult *querydsl.SearchResult, opts exportOptions, cache *fileWriterCache) (written int, err error) {
 	log.Debugf("Process %d documents", len(searchResult.Hits.Hits))
 
+	csvMode := isCSVMode(opts.fields)
+	sepRune, _ := utf8.DecodeRuneInString(opts.separator)
 	filtered := 0
 	for _, item := range searchResult.Hits.Hits {
 		jsonResult := gjson.ParseBytes(item.Source)
 
-		// 1. Build the output line first.
+		// 1. Extract field values and build the raw line for filtering.
 		td := make([]string, 0, len(opts.fields))
 		for _, field := range opts.fields {
 			td = append(td, jsonResult.Get(field).Str)
 		}
-		line := strings.Join(td, opts.separator)
+		rawLine := strings.Join(td, opts.separator)
 
-		// 2. Filter BEFORE determining filename / opening any file.
-		if !matchAnyFilter(opts.filters, line) {
+		// 2. Filter BEFORE determining filename / opening any file / CSV escaping.
+		if !matchAnyFilter(opts.filters, rawLine) {
 			filtered++
 			continue
 		}
@@ -622,14 +685,27 @@ func processExport(searchResult *querydsl.SearchResult, opts exportOptions, cach
 			fileName += ".gz"
 		}
 
-		// 4. Open writer (creates file only here) and write.
-		writer, err := cache.get(fileName)
-		if err != nil {
-			return written, err
-		}
-		if _, err = fmt.Fprintf(writer, "%s\n", line); err != nil {
-			log.Errorf("Error when write file: %s", err.Error())
-			return written, err
+		// 4. Open writer (creates file only here) and write:
+		//    - multi-field mode writes an RFC 4180 record via encoding/csv
+		//    - single-field mode writes the raw line verbatim
+		if csvMode {
+			csvWriter, err := cache.getCSVWriter(fileName, sepRune)
+			if err != nil {
+				return written, err
+			}
+			if err := csvWriter.Write(td); err != nil {
+				log.Errorf("Error when write file: %s", err.Error())
+				return written, err
+			}
+		} else {
+			writer, err := cache.get(fileName)
+			if err != nil {
+				return written, err
+			}
+			if _, err = fmt.Fprintf(writer, "%s\n", rawLine); err != nil {
+				log.Errorf("Error when write file: %s", err.Error())
+				return written, err
+			}
 		}
 		written++
 	}

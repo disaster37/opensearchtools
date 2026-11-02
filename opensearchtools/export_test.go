@@ -168,3 +168,62 @@ func (s *ESTestSuite) TestExportDataToFilesWithFilters() {
 	_, err = os.ReadFile(fmt.Sprintf("%s/es-1", dir))
 	assert.True(s.T(), os.IsNotExist(err))
 }
+
+func (s *ESTestSuite) TestExportDataToFilesMultiFieldCSV() {
+	logrus.SetLevel(logrus.TraceLevel)
+
+	baseOpts := exportOptions{
+		fromDate:          "now-1000y",
+		toDate:            "now",
+		dateField:         "@timestamp",
+		index:             "logs",
+		query:             "*",
+		isOpenClosedIndex: false,
+		fields:            []string{"level", "component", "message"},
+		splitFileColumn:   "node_name",
+		pitDuration:       "24h",
+		compress:          false,
+		os:                s.client,
+	}
+
+	// Comma separator: the fixture message contains a comma, so it must be quoted.
+	dirComma, err := os.MkdirTemp("/tmp", "test")
+	if err != nil {
+		s.T().Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(dirComma) }()
+
+	optsComma := baseOpts
+	optsComma.separator = ","
+	optsComma.path = dirComma
+	err = exportDataToFiles(context.Background(), optsComma)
+	assert.NoError(s.T(), err)
+
+	content, err := os.ReadFile(fmt.Sprintf("%s/es-0", dirComma))
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "INFO,o.e.m.j.JvmGcMonitorService,\"[gc][17868238] overhead, spent [334ms] collecting in the last [1s]\"\n", string(content))
+
+	// Semicolon separator: the fixture message contains no semicolon, so it stays unquoted.
+	dirSemi, err := os.MkdirTemp("/tmp", "test")
+	if err != nil {
+		s.T().Fatal(err)
+	}
+	defer func() { _ = os.RemoveAll(dirSemi) }()
+
+	optsSemi := baseOpts
+	optsSemi.separator = ";"
+	optsSemi.path = dirSemi
+	err = exportDataToFiles(context.Background(), optsSemi)
+	assert.NoError(s.T(), err)
+
+	content, err = os.ReadFile(fmt.Sprintf("%s/es-0", dirSemi))
+	assert.NoError(s.T(), err)
+	assert.Equal(s.T(), "INFO;o.e.m.j.JvmGcMonitorService;[gc][17868238] overhead, spent [334ms] collecting in the last [1s]\n", string(content))
+
+	// Invalid separator is rejected before any OpenSearch call.
+	optsInvalid := baseOpts
+	optsInvalid.separator = "invalid"
+	optsInvalid.path = dirSemi
+	err = exportDataToFiles(context.Background(), optsInvalid)
+	assert.Error(s.T(), err)
+}
