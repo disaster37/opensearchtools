@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"compress/gzip"
 	"context"
+	"encoding/csv"
 	"fmt"
 	stdos "os"
 	"os/signal"
@@ -114,19 +115,21 @@ func matchAnyFilter(filters []*regexp.Regexp, line string) bool {
 }
 
 // validateSeparator checks that sep is a single valid UTF-8 rune suitable as a
-// CSV delimiter (not empty, not multi-rune, and not '"', '\r', or '\n').
+// CSV delimiter (not empty, not multi-rune, and not NUL, U+FFFD, '"', '\r', or '\n').
 func validateSeparator(sep string) error {
 	if sep == "" {
 		return errors.New("separator must not be empty")
 	}
 	r, size := utf8.DecodeRuneInString(sep)
-	if r == utf8.RuneError && size <= 1 {
+	if r == utf8.RuneError || !utf8.ValidRune(r) {
 		return errors.Errorf("invalid UTF-8 separator %q", sep)
 	}
 	if size != len(sep) {
 		return errors.Errorf("separator must be a single character, got %q", sep)
 	}
 	switch r {
+	case 0:
+		return errors.New("separator cannot be NUL character")
 	case '"':
 		return errors.New("separator cannot be double quote (\")")
 	case '\r', '\n':
@@ -139,51 +142,6 @@ func validateSeparator(sep string) error {
 // Single-field exports (len <= 1) use raw mode; multi-field exports (len > 1) use CSV mode.
 func isCSVMode(fields []string) bool {
 	return len(fields) > 1
-}
-
-// formatCSVField formats a single field value according to RFC 4180 rules using sep.
-// If field contains sep, '"', '\r', or '\n', it is wrapped in double quotes and
-// any internal '"' characters are doubled.
-func formatCSVField(field string, sep string) string {
-	if !strings.Contains(field, sep) && !strings.ContainsAny(field, "\"\r\n") {
-		return field
-	}
-	var b strings.Builder
-	b.Grow(len(field) + 2 + strings.Count(field, `"`))
-	b.WriteByte('"')
-	for i := 0; i < len(field); i++ {
-		if field[i] == '"' {
-			b.WriteString(`""`)
-		} else {
-			b.WriteByte(field[i])
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
-}
-
-// formatCSVLine formats a slice of field values as a single RFC 4180 CSV record
-// joined by sep (without a trailing newline).
-func formatCSVLine(fields []string, sep string) string {
-	if len(fields) == 0 {
-		return ""
-	}
-	if len(fields) == 1 {
-		return formatCSVField(fields[0], sep)
-	}
-	var b strings.Builder
-	totalLen := len(sep) * (len(fields) - 1)
-	for _, f := range fields {
-		totalLen += len(f)
-	}
-	b.Grow(totalLen)
-	for i, f := range fields {
-		if i > 0 {
-			b.WriteString(sep)
-		}
-		b.WriteString(formatCSVField(f, sep))
-	}
-	return b.String()
 }
 
 // ExportDataToFiles permit to extract some datas to files
@@ -520,10 +478,11 @@ func handleClosedIndex(ctx context.Context, metadata *Metadata, index string, op
 // whole export so that file handles are not reopened on every batch and writes
 // are buffered instead of issuing one write() syscall per document line.
 type fileWriterCache struct {
-	compress bool
-	files    map[string]*stdos.File
-	gzips    map[string]*gzip.Writer
-	writers  map[string]*bufio.Writer
+	compress   bool
+	files      map[string]*stdos.File
+	gzips      map[string]*gzip.Writer
+	writers    map[string]*bufio.Writer
+	csvWriters map[string]*csv.Writer
 }
 
 const fileWriterBufferSize = 256 * 1024
@@ -582,10 +541,11 @@ func logInterruptSummary(progress *exportProgress) {
 
 func newFileWriterCache(compress bool) *fileWriterCache {
 	c := &fileWriterCache{
-		compress: compress,
-		files:    make(map[string]*stdos.File),
-		gzips:    make(map[string]*gzip.Writer),
-		writers:  make(map[string]*bufio.Writer),
+		compress:   compress,
+		files:      make(map[string]*stdos.File),
+		gzips:      make(map[string]*gzip.Writer),
+		writers:    make(map[string]*bufio.Writer),
+		csvWriters: make(map[string]*csv.Writer),
 	}
 	registerWriterCache(c)
 	return c
@@ -621,6 +581,25 @@ func (c *fileWriterCache) get(fileName string) (*bufio.Writer, error) {
 	c.writers[fileName] = w
 
 	return w, nil
+}
+
+// getCSVWriter returns a *csv.Writer for fileName configured with comma as its
+// field delimiter. Because c.get(fileName) returns a 256 KB *bufio.Writer and
+// csv.NewWriter calls bufio.NewWriter (which reuses an existing *bufio.Writer
+// whose buffer is >= 4 KB), the returned *csv.Writer writes directly into the
+// cached *bufio.Writer without double buffering.
+func (c *fileWriterCache) getCSVWriter(fileName string, comma rune) (*csv.Writer, error) {
+	if cw, ok := c.csvWriters[fileName]; ok {
+		return cw, nil
+	}
+	w, err := c.get(fileName)
+	if err != nil {
+		return nil, err
+	}
+	cw := csv.NewWriter(w)
+	cw.Comma = comma
+	c.csvWriters[fileName] = cw
+	return cw, nil
 }
 
 // flush flushes every buffered writer without closing the files. It is safe to
@@ -675,6 +654,7 @@ func processExport(searchResult *querydsl.SearchResult, opts exportOptions, cach
 	log.Debugf("Process %d documents", len(searchResult.Hits.Hits))
 
 	csvMode := isCSVMode(opts.fields)
+	sepRune, _ := utf8.DecodeRuneInString(opts.separator)
 	filtered := 0
 	for _, item := range searchResult.Hits.Hits {
 		jsonResult := gjson.ParseBytes(item.Source)
@@ -692,13 +672,7 @@ func processExport(searchResult *querydsl.SearchResult, opts exportOptions, cach
 			continue
 		}
 
-		// 3. Build final output line: raw for single-field, RFC 4180 CSV for multi-field.
-		line := rawLine
-		if csvMode {
-			line = formatCSVLine(td, opts.separator)
-		}
-
-		// 4. Determine target file (unchanged logic).
+		// 3. Determine target file (unchanged logic).
 		var fileName string
 		if jsonResult.Get(opts.splitFileColumn).Str == "" {
 			log.Debugf("No value for field %s on document id %s", opts.splitFileColumn, item.Id)
@@ -711,14 +685,27 @@ func processExport(searchResult *querydsl.SearchResult, opts exportOptions, cach
 			fileName += ".gz"
 		}
 
-		// 5. Open writer (creates file only here) and write.
-		writer, err := cache.get(fileName)
-		if err != nil {
-			return written, err
-		}
-		if _, err = fmt.Fprintf(writer, "%s\n", line); err != nil {
-			log.Errorf("Error when write file: %s", err.Error())
-			return written, err
+		// 4. Open writer (creates file only here) and write:
+		//    - multi-field mode writes an RFC 4180 record via encoding/csv
+		//    - single-field mode writes the raw line verbatim
+		if csvMode {
+			csvWriter, err := cache.getCSVWriter(fileName, sepRune)
+			if err != nil {
+				return written, err
+			}
+			if err := csvWriter.Write(td); err != nil {
+				log.Errorf("Error when write file: %s", err.Error())
+				return written, err
+			}
+		} else {
+			writer, err := cache.get(fileName)
+			if err != nil {
+				return written, err
+			}
+			if _, err = fmt.Fprintf(writer, "%s\n", rawLine); err != nil {
+				log.Errorf("Error when write file: %s", err.Error())
+				return written, err
+			}
 		}
 		written++
 	}

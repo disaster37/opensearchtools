@@ -107,9 +107,10 @@ __parameters__:
   - **query** (required): To query to export data. The query as Lucene query (string query format)
   - **fields**: Fields to extract. Default to `log.original`. When a single field is
     specified, its content is written raw, as-is, to reconstruct the original logs. When
-    multiple fields are specified, each output line is formatted as RFC 4180 CSV: fields
-    containing the separator, double quotes, or newlines are wrapped in double quotes and
-    embedded double quotes are doubled.
+    multiple fields are specified, each output line is formatted as RFC 4180 CSV (using Go's
+    `encoding/csv` package): fields containing the separator, double quotes, or newlines
+    (as well as fields starting with whitespace) are wrapped in double quotes and embedded
+    double quotes are doubled.
   - **filters**: Go regular expression(s) to keep only matching output lines before writing.
     Repeatable (`--filters "a" --filters "b"`); a line is kept if it matches ANY filter (OR
     semantics, like `grep -e`). The pattern is matched against the extracted fields joined by

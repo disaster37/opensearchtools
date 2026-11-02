@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/disaster37/opensearch/v4/querydsl"
 	log "github.com/sirupsen/logrus"
@@ -163,56 +164,216 @@ func TestRunInterruptShutdownOrdering(t *testing.T) {
 }
 
 func TestValidateSeparator(t *testing.T) {
-	for _, sep := range []string{";", ",", "|", "\t", "§"} {
+	for _, sep := range []string{";", ",", "|", "\t", "§", " "} {
 		assert.NoError(t, validateSeparator(sep), "separator %q should be valid", sep)
 	}
 
-	for _, sep := range []string{"", ";;", "||", "\"", "\n", "\r", "\r\n", string([]byte{0xff})} {
+	for _, sep := range []string{"", ";;", "||", "\"", "\n", "\r", "\r\n", string([]byte{0xff}), "\x00", "\uFFFD"} {
 		assert.Error(t, validateSeparator(sep), "separator %q should be invalid", sep)
 	}
 }
 
-func TestFormatCSVLine(t *testing.T) {
+func TestProcessExportCSVFormattingCases(t *testing.T) {
 	tests := []struct {
-		name          string
-		fields        []string
-		sep           string
-		want          string
-		wantRoundTrip []string // nil means the original fields
+		name       string
+		fields     []string
+		values     map[string]string
+		sep        string
+		want       string
+		wantRecord []string // nil means the values in field order
 	}{
-		{name: "plain fields", fields: []string{"INFO", "main", "ok"}, sep: ";", want: "INFO;main;ok"},
-		{name: "field with separator", fields: []string{"INFO", "a;b"}, sep: ";", want: `INFO;"a;b"`},
-		{name: "field with double quotes", fields: []string{"INFO", `say "hello"`}, sep: ";", want: `INFO;"say ""hello"""`},
-		{name: "field with LF", fields: []string{"ERROR", "line1\nline2"}, sep: ";", want: "ERROR;\"line1\nline2\""},
-		{name: "field with CRLF", fields: []string{"ERROR", "line1\r\nline2"}, sep: ";", want: "ERROR;\"line1\r\nline2\"", wantRoundTrip: []string{"ERROR", "line1\nline2"}},
-		{name: "field with CR only", fields: []string{"ERROR", "line1\rline2"}, sep: ";", want: "ERROR;\"line1\rline2\""},
-		{name: "field with separator quotes and newline", fields: []string{"WARN", "a;\"b\"\nc"}, sep: ";", want: "WARN;\"a;\"\"b\"\"\nc\""},
-		{name: "empty fields", fields: []string{"", "mid", ""}, sep: ";", want: ";mid;"},
-		{name: "comma separator", fields: []string{"INFO", "a, b"}, sep: ",", want: `INFO,"a, b"`},
-		{name: "pipe separator", fields: []string{"INFO", "a|b"}, sep: "|", want: `INFO|"a|b"`},
-		{name: "single field", fields: []string{"a;b"}, sep: ";", want: `"a;b"`},
-		{name: "no fields", fields: []string{}, sep: ";", want: ""},
+		{
+			name:   "plain fields semicolon",
+			fields: []string{"level", "component", "message"},
+			values: map[string]string{"level": "INFO", "component": "main", "message": "ok"},
+			sep:    ";",
+			want:   "INFO;main;ok\n",
+		},
+		{
+			name:   "comma separator",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "INFO", "message": "a, b"},
+			sep:    ",",
+			want:   "INFO,\"a, b\"\n",
+		},
+		{
+			name:   "pipe separator",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "INFO", "message": "a|b"},
+			sep:    "|",
+			want:   "INFO|\"a|b\"\n",
+		},
+		{
+			name:   "multi-byte separator",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "INFO", "message": "a§b"},
+			sep:    "§",
+			want:   "INFO§\"a§b\"\n",
+		},
+		{
+			name:   "space separator",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "INFO", "message": "a b"},
+			sep:    " ",
+			want:   "INFO \"a b\"\n",
+		},
+		{
+			name:   "field containing separator",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "INFO", "message": "a;b"},
+			sep:    ";",
+			want:   "INFO;\"a;b\"\n",
+		},
+		{
+			name:   "field containing double quotes",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "INFO", "message": `say "hello"`},
+			sep:    ";",
+			want:   "INFO;\"say \"\"hello\"\"\"\n",
+		},
+		{
+			name:   "field containing LF",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "ERROR", "message": "line1\nline2"},
+			sep:    ";",
+			want:   "ERROR;\"line1\nline2\"\n",
+		},
+		{
+			name:       "field containing CRLF",
+			fields:     []string{"level", "message"},
+			values:     map[string]string{"level": "ERROR", "message": "line1\r\nline2"},
+			sep:        ";",
+			want:       "ERROR;\"line1\r\nline2\"\n",
+			wantRecord: []string{"ERROR", "line1\nline2"},
+		},
+		{
+			name:   "field containing CR only",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "ERROR", "message": "line1\rline2"},
+			sep:    ";",
+			want:   "ERROR;\"line1\rline2\"\n",
+		},
+		{
+			name:   "field containing separator quotes and newline",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "WARN", "message": "a;\"b\"\nc"},
+			sep:    ";",
+			want:   "WARN;\"a;\"\"b\"\"\nc\"\n",
+		},
+		{
+			name:       "empty and missing fields",
+			fields:     []string{"a", "b", "c"},
+			values:     map[string]string{"a": "", "b": "mid"},
+			sep:        ";",
+			want:       ";mid;\n",
+			wantRecord: []string{"", "mid", ""},
+		},
+		{
+			name:   "leading space",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "INFO", "message": " leading"},
+			sep:    ";",
+			want:   "INFO;\" leading\"\n",
+		},
+		{
+			name:   "leading tab",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "INFO", "message": "\tleading"},
+			sep:    ";",
+			want:   "INFO;\"\tleading\"\n",
+		},
+		{
+			name:   "postgres terminator",
+			fields: []string{"level", "message"},
+			values: map[string]string{"level": "INFO", "message": `\.`},
+			sep:    ";",
+			want:   "INFO;\"\\.\"\n",
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := formatCSVLine(tt.fields, tt.sep)
-			assert.Equal(t, tt.want, got)
+			dir, err := os.MkdirTemp("/tmp", "test")
+			assert.NoError(t, err)
+			defer func() { _ = os.RemoveAll(dir) }()
 
-			if len(tt.fields) == 0 {
-				return
+			source, err := json.Marshal(tt.values)
+			assert.NoError(t, err)
+			sr := &querydsl.SearchResult{
+				Hits: &querydsl.SearchHits{
+					TotalHits: &querydsl.TotalHits{Value: 1, Relation: "eq"},
+					Hits: []*querydsl.SearchHit{
+						{Id: "1", Source: source},
+					},
+				},
 			}
-			wantRT := tt.wantRoundTrip
-			if wantRT == nil {
-				wantRT = tt.fields
+
+			opts := exportOptions{
+				fields:          tt.fields,
+				separator:       tt.sep,
+				splitFileColumn: "node_name",
+				path:            dir,
 			}
-			r := csv.NewReader(strings.NewReader(got))
-			r.Comma = []rune(tt.sep)[0]
+
+			cache := newFileWriterCache(false)
+			defer func() { _ = cache.Close() }()
+
+			written, err := processExport(sr, opts, cache)
+			assert.NoError(t, err)
+			assert.Equal(t, 1, written)
+			cache.flush()
+
+			content, err := os.ReadFile(dir + "/unknown_host")
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, string(content))
+
+			r := csv.NewReader(strings.NewReader(string(content)))
+			r.Comma, _ = utf8.DecodeRuneInString(tt.sep)
 			record, err := r.Read()
 			assert.NoError(t, err)
-			assert.Equal(t, wantRT, record)
+
+			wantRecord := tt.wantRecord
+			if wantRecord == nil {
+				wantRecord = make([]string, len(tt.fields))
+				for i, field := range tt.fields {
+					wantRecord[i] = tt.values[field]
+				}
+			}
+			assert.Equal(t, wantRecord, record)
 		})
 	}
+}
+
+func TestFileWriterCacheCSVWriterSharesBufio(t *testing.T) {
+	dir, err := os.MkdirTemp("/tmp", "test")
+	assert.NoError(t, err)
+	defer func() { _ = os.RemoveAll(dir) }()
+
+	cache := newFileWriterCache(false)
+	defer func() { _ = cache.Close() }()
+
+	fileName := dir + "/host"
+	cw, err := cache.getCSVWriter(fileName, ';')
+	assert.NoError(t, err)
+
+	again, err := cache.getCSVWriter(fileName, ';')
+	assert.NoError(t, err)
+	assert.Same(t, cw, again)
+
+	assert.NoError(t, cw.Write([]string{"a", "b"}))
+	cache.flush()
+
+	content, err := os.ReadFile(fileName)
+	assert.NoError(t, err)
+	assert.Equal(t, "a;b\n", string(content))
+
+	// The file must still be open after flush: writing again appends.
+	assert.NoError(t, cw.Write([]string{"c", "d"}))
+	cache.flush()
+
+	content, err = os.ReadFile(fileName)
+	assert.NoError(t, err)
+	assert.Equal(t, "a;b\nc;d\n", string(content))
 }
 
 func TestProcessExportSingleFieldRawPreservesSpecialChars(t *testing.T) {
