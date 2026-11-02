@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"syscall"
+	"unicode/utf8"
 
 	"github.com/disaster37/opensearch/v4"
 	"github.com/disaster37/opensearch/v4/api"
@@ -112,6 +113,79 @@ func matchAnyFilter(filters []*regexp.Regexp, line string) bool {
 	return false
 }
 
+// validateSeparator checks that sep is a single valid UTF-8 rune suitable as a
+// CSV delimiter (not empty, not multi-rune, and not '"', '\r', or '\n').
+func validateSeparator(sep string) error {
+	if sep == "" {
+		return errors.New("separator must not be empty")
+	}
+	r, size := utf8.DecodeRuneInString(sep)
+	if r == utf8.RuneError && size <= 1 {
+		return errors.Errorf("invalid UTF-8 separator %q", sep)
+	}
+	if size != len(sep) {
+		return errors.Errorf("separator must be a single character, got %q", sep)
+	}
+	switch r {
+	case '"':
+		return errors.New("separator cannot be double quote (\")")
+	case '\r', '\n':
+		return errors.New("separator cannot be a newline character")
+	}
+	return nil
+}
+
+// isCSVMode reports whether the export should format output lines as RFC 4180 CSV.
+// Single-field exports (len <= 1) use raw mode; multi-field exports (len > 1) use CSV mode.
+func isCSVMode(fields []string) bool {
+	return len(fields) > 1
+}
+
+// formatCSVField formats a single field value according to RFC 4180 rules using sep.
+// If field contains sep, '"', '\r', or '\n', it is wrapped in double quotes and
+// any internal '"' characters are doubled.
+func formatCSVField(field string, sep string) string {
+	if !strings.Contains(field, sep) && !strings.ContainsAny(field, "\"\r\n") {
+		return field
+	}
+	var b strings.Builder
+	b.Grow(len(field) + 2 + strings.Count(field, `"`))
+	b.WriteByte('"')
+	for i := 0; i < len(field); i++ {
+		if field[i] == '"' {
+			b.WriteString(`""`)
+		} else {
+			b.WriteByte(field[i])
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// formatCSVLine formats a slice of field values as a single RFC 4180 CSV record
+// joined by sep (without a trailing newline).
+func formatCSVLine(fields []string, sep string) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	if len(fields) == 1 {
+		return formatCSVField(fields[0], sep)
+	}
+	var b strings.Builder
+	totalLen := len(sep) * (len(fields) - 1)
+	for _, f := range fields {
+		totalLen += len(f)
+	}
+	b.Grow(totalLen)
+	for i, f := range fields {
+		if i > 0 {
+			b.WriteString(sep)
+		}
+		b.WriteString(formatCSVField(f, sep))
+	}
+	return b.String()
+}
+
 // ExportDataToFiles permit to extract some datas to files
 // It return error if something wrong
 func ExportDataToFiles(c *cli.Context) error {
@@ -141,6 +215,10 @@ func ExportDataToFiles(c *cli.Context) error {
 	}
 	if query == "" {
 		return errors.New("You must set --query")
+	}
+
+	if err := validateSeparator(separator); err != nil {
+		return err
 	}
 
 	filters, err := compileFilters(c.StringSlice("filters"))
@@ -188,6 +266,10 @@ func exportDataToFiles(ctx context.Context, opts exportOptions) error {
 
 	if opts.os == nil {
 		return errors.New("You must provide es client")
+	}
+
+	if err := validateSeparator(opts.separator); err != nil {
+		return err
 	}
 
 	if _, err := datemath.Parse(opts.fromDate); err != nil {
@@ -592,24 +674,31 @@ func (c *fileWriterCache) Close() error {
 func processExport(searchResult *querydsl.SearchResult, opts exportOptions, cache *fileWriterCache) (written int, err error) {
 	log.Debugf("Process %d documents", len(searchResult.Hits.Hits))
 
+	csvMode := isCSVMode(opts.fields)
 	filtered := 0
 	for _, item := range searchResult.Hits.Hits {
 		jsonResult := gjson.ParseBytes(item.Source)
 
-		// 1. Build the output line first.
+		// 1. Extract field values and build the raw line for filtering.
 		td := make([]string, 0, len(opts.fields))
 		for _, field := range opts.fields {
 			td = append(td, jsonResult.Get(field).Str)
 		}
-		line := strings.Join(td, opts.separator)
+		rawLine := strings.Join(td, opts.separator)
 
-		// 2. Filter BEFORE determining filename / opening any file.
-		if !matchAnyFilter(opts.filters, line) {
+		// 2. Filter BEFORE determining filename / opening any file / CSV escaping.
+		if !matchAnyFilter(opts.filters, rawLine) {
 			filtered++
 			continue
 		}
 
-		// 3. Determine target file (unchanged logic).
+		// 3. Build final output line: raw for single-field, RFC 4180 CSV for multi-field.
+		line := rawLine
+		if csvMode {
+			line = formatCSVLine(td, opts.separator)
+		}
+
+		// 4. Determine target file (unchanged logic).
 		var fileName string
 		if jsonResult.Get(opts.splitFileColumn).Str == "" {
 			log.Debugf("No value for field %s on document id %s", opts.splitFileColumn, item.Id)
@@ -622,7 +711,7 @@ func processExport(searchResult *querydsl.SearchResult, opts exportOptions, cach
 			fileName += ".gz"
 		}
 
-		// 4. Open writer (creates file only here) and write.
+		// 5. Open writer (creates file only here) and write.
 		writer, err := cache.get(fileName)
 		if err != nil {
 			return written, err

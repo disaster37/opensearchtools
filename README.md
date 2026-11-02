@@ -105,13 +105,19 @@ __parameters__:
   - **date-field**: The date field to range over. Default to `@timestamp`
   - **index**: The index to export data. Default to `_all_`
   - **query** (required): To query to export data. The query as Lucene query (string query format)
-  - **fields**: Fields to extracts. Default to `log.original`
+  - **fields**: Fields to extract. Default to `log.original`. When a single field is
+    specified, its content is written raw, as-is, to reconstruct the original logs. When
+    multiple fields are specified, each output line is formatted as RFC 4180 CSV: fields
+    containing the separator, double quotes, or newlines are wrapped in double quotes and
+    embedded double quotes are doubled.
   - **filters**: Go regular expression(s) to keep only matching output lines before writing.
     Repeatable (`--filters "a" --filters "b"`); a line is kept if it matches ANY filter (OR
     semantics, like `grep -e`). The pattern is matched against the extracted fields joined by
     `--separator`. Note: because the CLI splits each `--filters` value on commas, avoid comma
     characters in a single pattern (e.g. `{2,3}` quantifiers); repeat the flag instead.
-  - **separator**: The separator to concatain field when extract multi fields. Default to `|`
+  - **separator**: The separator used to join fields in multi-field CSV mode and to match
+    `--filters` patterns. It must be a single character and cannot be `"`, `\r`, or `\n`.
+    Default to `;`
   - **split-file-field**: The field to use to split data into multi files. Default to `host.name`
   - **path**: The root path to create extracted files. Default to `.`
   - **open-index**: If you want to export data from index that is closed.
@@ -124,6 +130,11 @@ opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin -
 Sample of command with filters:
 ```bash
 opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin --password changeme --self-signed-certificate export-data --from now-12h --to now --index "logs-*" --query "*" --fields log.original --filters "ERROR" --filters "5[0-9][0-9]" --path /tmp
+```
+
+Sample of command with multi-field CSV export:
+```bash
+opensearchtools_linux_amd64 --urls https://opensearch.company.com --user admin --password changeme --self-signed-certificate export-data --from now-12h --to now --index "logs-*" --query "*" --fields "@timestamp" --fields "level" --fields "message" --separator ";" --path /tmp
 ```
 
 At Info level, the export logs the number of documents found on OpenSearch

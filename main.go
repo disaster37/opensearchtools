@@ -160,8 +160,8 @@ func run(args []string) error {
 				},
 				&cli.StringFlag{
 					Name:  "separator",
-					Usage: "The separator to concatain field when extract multi fields",
-					Value: "|",
+					Usage: "The CSV separator character when extracting multiple fields",
+					Value: ";",
 				},
 				&cli.StringFlag{
 					Name:  "split-file-field",
